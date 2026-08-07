@@ -1,0 +1,22 @@
+{
+  "visual": {
+    "name": "IBCSCharts",
+    "displayName": "IBCS Charts",
+    "guid": "ibcsChartsK5M2P8Q4R7",
+    "visualClassName": "Visual",
+    "version": "1.6.0.0",
+    "description": "IBCS-style business chart suite with Zebra BI-like semantic notation: variance composite chart (AC + delta + delta%), scenario time series, waterfall and semantic table. Supports both a scenario dimension field and dedicated AC/PY/PL/FC measures.",
+    "supportUrl": "https://github.com/muxiaoqi007",
+    "gitHubUrl": ""
+  },
+  "apiVersion": "5.9.0",
+  "author": {
+    "name": "muxiaoqi007",
+    "email": "dev@example.com"
+  },
+  "assets": {
+    "icon": "assets/icon.png"
+  },
+  "style": "style/visual.less",
+  "capabilities": "capabilities.json"
+}

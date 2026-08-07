@@ -1,0 +1,43 @@
+{
+  "name": "ibcs-variance-chart",
+  "version": "1.5.0",
+  "description": "IBCS-style chart suite for Power BI: variance composite chart, semantic time series, waterfall and semantic table with AC/PY/PL/FC scenario notation (Zebra BI inspired)",
+  "main": "src/visual.ts",
+  "license": "MIT",
+  "scripts": {
+    "pbiviz": "pbiviz",
+    "start": "pbiviz start",
+    "package": "pbiviz package",
+    "prepare-api-schema": "node scripts/prepare-api-schema.js",
+    "build": "npm run prepare-api-schema && webpack --mode production",
+    "dev": "npm run prepare-api-schema && webpack --mode development --watch",
+    "lint": "npx eslint .",
+    "eslint": "npx eslint ."
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "powerbi-visuals-api": "~5.9.0",
+    "powerbi-visuals-utils-colorutils": "^6.0.6",
+    "powerbi-visuals-utils-formattingmodel": "6.0.4",
+    "powerbi-visuals-utils-formattingutils": "6.1.1",
+    "powerbi-visuals-utils-tooltiputils": "^6.0.5"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@typescript-eslint/eslint-plugin": "^8.8.0",
+    "css-loader": "^6.10.0",
+    "eslint": "^9.11.1",
+    "eslint-plugin-powerbi-visuals": "^1.1.1",
+    "jsdom": "^30.0.1",
+    "less": "^4.2.0",
+    "less-loader": "^11.1.4",
+    "mini-css-extract-plugin": "^2.8.1",
+    "powerbi-visuals-tools": "^6.2.0",
+    "powerbi-visuals-webpack-plugin": "^5.0.3",
+    "style-loader": "^3.3.4",
+    "ts-loader": "^9.5.1",
+    "typescript": "~5.5.4",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4"
+  }
+}

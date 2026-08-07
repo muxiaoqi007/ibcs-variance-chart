@@ -1,0 +1,290 @@
+{
+  "dataRoles": [
+    {
+      "name": "category",
+      "kind": "Grouping",
+      "displayName": "Category",
+      "displayNameKey": "Visual_DataRole_Category",
+      "description": "Category shown as rows or columns (e.g. market class, product, region).",
+      "descriptionKey": "Visual_DataRole_CategoryDesc"
+    },
+    {
+      "name": "timeAxis",
+      "kind": "Grouping",
+      "displayName": "Time axis",
+      "displayNameKey": "Visual_DataRole_TimeAxis",
+      "description": "Time field used by the time series mode (e.g. month, year).",
+      "descriptionKey": "Visual_DataRole_TimeAxisDesc"
+    },
+    {
+      "name": "scenario",
+      "kind": "Grouping",
+      "displayName": "Scenario (long data, optional)",
+      "displayNameKey": "Visual_DataRole_Scenario",
+      "description": "Scenario dimension with values such as AC, PY, PL, FC (also Chinese labels). Alternative to the dedicated AC/PY/PL/FC measure wells.",
+      "descriptionKey": "Visual_DataRole_ScenarioDesc"
+    },
+    {
+      "name": "value",
+      "kind": "Measure",
+      "displayName": "Value (long data, optional)",
+      "displayNameKey": "Visual_DataRole_Value",
+      "description": "Measure evaluated per scenario when a scenario dimension is used. Alternative to the dedicated AC/PY/PL/FC measure wells.",
+      "descriptionKey": "Visual_DataRole_ValueDesc"
+    },
+    {
+      "name": "ac",
+      "kind": "Measure",
+      "displayName": "Actual (AC)",
+      "displayNameKey": "Visual_DataRole_AC",
+      "description": "Measure holding actual values (alternative to scenario dimension).",
+      "descriptionKey": "Visual_DataRole_ACDesc"
+    },
+    {
+      "name": "py",
+      "kind": "Measure",
+      "displayName": "Prior period (PY)",
+      "displayNameKey": "Visual_DataRole_PY",
+      "description": "Measure holding prior year / prior period values.",
+      "descriptionKey": "Visual_DataRole_PYDesc"
+    },
+    {
+      "name": "pl",
+      "kind": "Measure",
+      "displayName": "Plan (PL)",
+      "displayNameKey": "Visual_DataRole_PL",
+      "description": "Measure holding plan / budget values.",
+      "descriptionKey": "Visual_DataRole_PLDesc"
+    },
+    {
+      "name": "fc",
+      "kind": "Measure",
+      "displayName": "Forecast (FC)",
+      "displayNameKey": "Visual_DataRole_FC",
+      "description": "Measure holding forecast values.",
+      "descriptionKey": "Visual_DataRole_FCDesc"
+    },
+    {
+      "name": "tooltips",
+      "kind": "Measure",
+      "displayName": "Tooltips",
+      "displayNameKey": "Visual_DataRole_Tooltips",
+      "description": "Additional measures shown in tooltips.",
+      "descriptionKey": "Visual_DataRole_TooltipsDesc"
+    }
+  ],
+  "dataViewMappings": [
+    {
+      "conditions": [
+        {
+          "category": { "max": 1 },
+          "timeAxis": { "max": 1 },
+          "scenario": { "max": 1 },
+          "value": { "max": 1 },
+          "ac": { "max": 1 },
+          "py": { "max": 1 },
+          "pl": { "max": 1 },
+          "fc": { "max": 1 },
+          "tooltips": { "max": 5 }
+        }
+      ],
+      "categorical": {
+        "categories": {
+          "select": [
+            { "for": { "in": "category" } },
+            { "for": { "in": "timeAxis" } },
+            { "for": { "in": "scenario" } }
+          ],
+          "dataReductionAlgorithm": { "top": {} }
+        },
+        "values": {
+          "select": [
+            { "for": { "in": "value" } },
+            { "for": { "in": "ac" } },
+            { "for": { "in": "py" } },
+            { "for": { "in": "pl" } },
+            { "for": { "in": "fc" } },
+            { "for": { "in": "tooltips" } }
+          ]
+        }
+      }
+    }
+  ],
+  "objects": {
+    "chart": {
+      "displayName": "Chart",
+      "displayNameKey": "Visual_Object_Chart",
+      "properties": {
+        "mode": {
+          "displayName": "Chart type",
+          "displayNameKey": "Visual_Slice_Mode",
+          "type": {
+            "enumeration": [
+              { "value": "variance", "displayName": "Variance composite", "displayNameKey": "Visual_Enum_Variance" },
+              { "value": "timeseries", "displayName": "Time series", "displayNameKey": "Visual_Enum_TimeSeries" },
+              { "value": "waterfall", "displayName": "Waterfall", "displayNameKey": "Visual_Enum_Waterfall" },
+              { "value": "table", "displayName": "Semantic table", "displayNameKey": "Visual_Enum_Table" }
+            ]
+          }
+        }
+      }
+    },
+    "scenarios": {
+      "displayName": "Scenarios",
+      "displayNameKey": "Visual_Object_Scenarios",
+      "properties": {
+        "baseScenario": {
+          "displayName": "Variance base",
+          "displayNameKey": "Visual_Slice_BaseScenario",
+          "type": {
+            "enumeration": [
+              { "value": "auto", "displayName": "Auto", "displayNameKey": "Visual_Enum_Auto" },
+              { "value": "PY", "displayName": "Prior period (PY)", "displayNameKey": "Visual_Enum_PY" },
+              { "value": "PL", "displayName": "Plan (PL)", "displayNameKey": "Visual_Enum_PL" },
+              { "value": "FC", "displayName": "Forecast (FC)", "displayNameKey": "Visual_Enum_FC" }
+            ]
+          }
+        }
+      }
+    },
+    "variance": {
+      "displayName": "Variance",
+      "displayNameKey": "Visual_Object_Variance",
+      "properties": {
+        "showDeltaAbs": {
+          "displayName": "Show absolute variance",
+          "displayNameKey": "Visual_Slice_ShowDeltaAbs",
+          "type": { "bool": true }
+        },
+        "showDeltaPct": {
+          "displayName": "Show percent variance",
+          "displayNameKey": "Visual_Slice_ShowDeltaPct",
+          "type": { "bool": true }
+        },
+        "colorMode": {
+          "displayName": "Variance colors",
+          "displayNameKey": "Visual_Slice_ColorMode",
+          "type": {
+            "enumeration": [
+              { "value": "semantic", "displayName": "Semantic (green/red)", "displayNameKey": "Visual_Enum_Semantic" },
+              { "value": "neutral", "displayName": "Neutral", "displayNameKey": "Visual_Enum_Neutral" }
+            ]
+          }
+        },
+        "goodDirection": {
+          "displayName": "Good direction",
+          "displayNameKey": "Visual_Slice_GoodDirection",
+          "type": {
+            "enumeration": [
+              { "value": "up", "displayName": "Increase is good", "displayNameKey": "Visual_Enum_Up" },
+              { "value": "down", "displayName": "Decrease is good", "displayNameKey": "Visual_Enum_Down" }
+            ]
+          }
+        },
+        "positiveColor": {
+          "displayName": "Improvement color",
+          "displayNameKey": "Visual_Slice_PositiveColor",
+          "type": { "fill": { "solid": { "color": true } } }
+        },
+        "negativeColor": {
+          "displayName": "Deterioration color",
+          "displayNameKey": "Visual_Slice_NegativeColor",
+          "type": { "fill": { "solid": { "color": true } } }
+        }
+      }
+    },
+    "labels": {
+      "displayName": "Labels",
+      "displayNameKey": "Visual_Object_Labels",
+      "properties": {
+        "showValueLabels": {
+          "displayName": "Show value labels",
+          "displayNameKey": "Visual_Slice_ShowValueLabels",
+          "type": { "bool": true }
+        },
+        "displayUnits": {
+          "displayName": "Display units",
+          "displayNameKey": "Visual_Slice_DisplayUnits",
+          "type": {
+            "enumeration": [
+              { "value": "0", "displayName": "Auto", "displayNameKey": "Visual_Enum_UnitsAuto" },
+              { "value": "1", "displayName": "None", "displayNameKey": "Visual_Enum_UnitsNone" },
+              { "value": "1000", "displayName": "Thousands", "displayNameKey": "Visual_Enum_UnitsThousands" },
+              { "value": "1000000", "displayName": "Millions", "displayNameKey": "Visual_Enum_UnitsMillions" },
+              { "value": "1000000000", "displayName": "Billions", "displayNameKey": "Visual_Enum_UnitsBillions" }
+            ]
+          }
+        },
+        "fontSize": {
+          "displayName": "Font size",
+          "displayNameKey": "Visual_Slice_FontSize",
+          "type": { "numeric": true }
+        }
+      }
+    },
+    "notation": {
+      "displayName": "Notation",
+      "displayNameKey": "Visual_Object_Notation",
+      "properties": {
+        "acColor": {
+          "displayName": "Actual color",
+          "displayNameKey": "Visual_Slice_ACColor",
+          "type": { "fill": { "solid": { "color": true } } }
+        },
+        "outlineColor": {
+          "displayName": "Outline color",
+          "displayNameKey": "Visual_Slice_OutlineColor",
+          "type": { "fill": { "solid": { "color": true } } }
+        },
+        "labelWidth": {
+          "displayName": "Category label width",
+          "displayNameKey": "Visual_Slice_LabelWidth",
+          "type": { "numeric": true }
+        }
+      }
+    },
+    "sortSettings": {
+      "displayName": "Sort",
+      "displayNameKey": "Visual_Object_Sort",
+      "properties": {
+        "field": {
+          "displayName": "Sort by",
+          "displayNameKey": "Visual_Slice_SortField",
+          "type": {
+            "enumeration": [
+              { "value": "none", "displayName": "None", "displayNameKey": "Visual_Enum_None" },
+              { "value": "ac", "displayName": "Actual (AC)", "displayNameKey": "Visual_Enum_SortAC" },
+              { "value": "delta", "displayName": "Variance", "displayNameKey": "Visual_Enum_SortDelta" },
+              { "value": "deltaPct", "displayName": "Variance %", "displayNameKey": "Visual_Enum_SortDeltaPct" }
+            ]
+          }
+        },
+        "direction": {
+          "displayName": "Direction",
+          "displayNameKey": "Visual_Slice_SortDirection",
+          "type": {
+            "enumeration": [
+              { "value": "desc", "displayName": "Descending", "displayNameKey": "Visual_Enum_Desc" },
+              { "value": "asc", "displayName": "Ascending", "displayNameKey": "Visual_Enum_Asc" }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "sorting": {
+    "custom": {}
+  },
+  "tooltips": {
+    "supportedTypes": {
+      "default": true,
+      "canvas": true
+    },
+    "roles": ["tooltips"],
+    "supportEnhancedTooltips": true
+  },
+  "supportsLandingPage": true,
+  "supportsKeyboardFocus": true,
+  "supportsMultiVisualSelection": true,
+  "privileges": []
+}
