@@ -19,6 +19,7 @@ export interface WaterfallColumn {
     from?: number;
     to?: number;
     selectionId: powerbi.visuals.ISelectionId;
+    selectionIds?: powerbi.visuals.ISelectionId[];
     tooltipExtra: TooltipItem[];
 }
 
@@ -119,7 +120,7 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
 
             return list.concat(col.tooltipExtra);
         };
-        bindInteractions(ctx, rect, () => col.selectionId, items);
+        bindInteractions(ctx, rect, () => col.selectionIds ?? col.selectionId, items);
 
         if (showLabels) {
             const isNeg = col.type === "step" && col.value < 0;

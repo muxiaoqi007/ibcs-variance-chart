@@ -88,6 +88,8 @@ export interface NotationColors {
     /** Hairlines and secondary text. */
     grid: string;
     text: string;
+    /** Text shown on top of a solid actual bar. */
+    inverseText: string;
 }
 
 export const DEFAULT_COLORS: NotationColors = {
@@ -96,7 +98,8 @@ export const DEFAULT_COLORS: NotationColors = {
     positive: "#2E9944",
     negative: "#D13438",
     grid: "#D8D8D8",
-    text: "#333333"
+    text: "#333333",
+    inverseText: "#FFFFFF"
 };
 
 export interface BarStyle {

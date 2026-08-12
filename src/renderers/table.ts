@@ -11,6 +11,7 @@ export interface TableModel {
     rows: Array<{
         label: string;
         selectionId: powerbi.visuals.ISelectionId;
+        selectionIds?: powerbi.visuals.ISelectionId[];
         ac: number | null;
         base: number | null;
         delta: number | null;
@@ -24,26 +25,50 @@ export interface TableModel {
 export function renderTable(ctx: RenderContext, model: TableModel): void {
     const { svg, width, height, colors, settings, formatter, fontSize } = ctx;
 
-    const rows = model.rows;
-    if (rows.length === 0) {
+    const allRows = model.rows;
+    if (allRows.length === 0) {
         return;
     }
     const baseKind = model.baseKind;
-    const showBase = baseKind !== null;
-    const showAbs = settings.variance.showDeltaAbs.value && showBase;
-    const showPct = settings.variance.showDeltaPct.value && showBase;
+    let showBase = baseKind !== null;
+    let showAbs = settings.variance.showDeltaAbs.value && showBase;
+    let showPct = settings.variance.showDeltaPct.value && showBase;
     const colorMode = settings.variance.colorMode.value as "semantic" | "neutral";
     const goodDirection = settings.variance.goodDirection.value as "up" | "down";
 
     const headerH = fontSize + 12;
-    const bodyH = height - headerH;
-    const rowH = clamp(bodyH / rows.length, fontSize + 6, 30);
+    const minRowH = fontSize + 6;
+    const initialBodyH = Math.max(0, height - headerH);
+    const needsOverflowNotice = allRows.length > Math.max(1, Math.floor(initialBodyH / minRowH));
+    const overflowH = needsOverflowNotice ? fontSize + 7 : 0;
+    const bodyH = Math.max(0, initialBodyH - overflowH);
+    const visibleCount = Math.max(1, Math.floor(bodyH / minRowH));
+    const rows = allRows.slice(0, visibleCount);
+    const hiddenCount = allRows.length - rows.length;
+    const rowH = Math.min(30, Math.max(1, bodyH / rows.length));
 
     const configuredLabelW = settings.notation.labelWidth.value;
     const maxLabelPx = d3.max(rows, (r) => measureText(r.label, fontSize)) ?? 0;
+    const maxLabelW = Math.max(28, width * 0.4);
     const labelW = configuredLabelW > 0
-        ? Math.min(configuredLabelW, width * 0.6)
-        : clamp(maxLabelPx + 16, 60, width * 0.4);
+        ? clamp(configuredLabelW, 28, maxLabelW)
+        : clamp(maxLabelPx + 16, 28, maxLabelW);
+
+    const minimumNumericW = 44;
+    const availableNumericW = Math.max(0, width - labelW - 8);
+    let numericCount = 1 + (showBase ? 1 : 0) + (showAbs ? 1 : 0) + (showPct ? 1 : 0);
+    if (showPct && availableNumericW / numericCount < minimumNumericW) {
+        showPct = false;
+        numericCount--;
+    }
+    if (showAbs && availableNumericW / numericCount < minimumNumericW) {
+        showAbs = false;
+        numericCount--;
+    }
+    if (showBase && availableNumericW / numericCount < 32) {
+        showBase = false;
+        numericCount--;
+    }
 
     interface ColDef {
         key: "base" | "ac" | "delta" | "pct";
@@ -51,8 +76,7 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
         width: number;
         x: number;
     }
-    const numericCount = 1 + (showBase ? 1 : 0) + (showAbs ? 1 : 0) + (showPct ? 1 : 0);
-    const numericW = Math.max(56, (width - labelW - 8) / numericCount);
+    const numericW = availableNumericW / Math.max(1, numericCount);
     const cols: ColDef[] = [];
     let cursor = labelW;
     if (showBase) {
@@ -83,7 +107,10 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
         .attr("text-anchor", "end")
         .attr("font-size", fontSize - 1)
         .attr("font-weight", 600)
-        .attr("fill", "#767676")
+        .attr("fill", colors.outline)
+        .attr("tabindex", (c) => (ctx.allowInteractions && keyToSort[c.key] ? 0 : null))
+        .attr("role", (c) => (keyToSort[c.key] ? "button" : null))
+        .attr("aria-label", (c) => c.header)
         .style("cursor", (c) => (keyToSort[c.key] ? "pointer" : "default"))
         .text((c) => {
             const sf = keyToSort[c.key];
@@ -95,6 +122,15 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
             if (!sf) {
                 return;
             }
+            event.stopPropagation();
+            cycleSort(ctx, sf);
+        })
+        .on("keydown", (event: KeyboardEvent, c) => {
+            const sf = keyToSort[c.key];
+            if (!sf || (event.key !== "Enter" && event.key !== " ")) {
+                return;
+            }
+            event.preventDefault();
             event.stopPropagation();
             cycleSort(ctx, sf);
         });
@@ -124,7 +160,7 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
         .attr("x2", width)
         .attr("y1", 0)
         .attr("y2", 0)
-        .attr("stroke", "#ECECEC")
+        .attr("stroke", colors.grid)
         .attr("stroke-width", 1);
 
     // labels
@@ -207,6 +243,17 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
 
                 return list.concat(d.tooltipExtra);
             };
-            bindInteractions(ctx, d3.select(this), () => d.selectionId, items);
+            bindInteractions(ctx, d3.select(this), () => d.selectionIds ?? d.selectionId, items);
         });
+
+    if (hiddenCount > 0) {
+        svg.append("text")
+            .attr("class", "ibcs-overflow-note")
+            .attr("x", width - 4)
+            .attr("y", height - 4)
+            .attr("text-anchor", "end")
+            .attr("font-size", Math.max(8, fontSize - 1))
+            .attr("fill", colors.outline)
+            .text(ctx.localization.getDisplayName("Visual_MoreRows").replace("{0}", String(hiddenCount)));
+    }
 }

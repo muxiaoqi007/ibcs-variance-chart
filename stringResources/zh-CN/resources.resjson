@@ -67,5 +67,21 @@
   "Visual_Enum_UnitsNone": "无",
   "Visual_Enum_UnitsThousands": "千",
   "Visual_Enum_UnitsMillions": "百万",
-  "Visual_Enum_UnitsBillions": "十亿"
+  "Visual_Enum_UnitsBillions": "十亿",
+  "Visual_MoreRows": "另有 {0} 项",
+  "Visual_Object_TopN": "Top N + 其他",
+  "Visual_Slice_TopNMode": "模式",
+  "Visual_Slice_TopNCount": "项目数",
+  "Visual_Slice_TopNPercentage": "累计占比",
+  "Visual_Slice_TopNRankBy": "排名依据",
+  "Visual_Slice_TopNIncludeOthers": "包含其他",
+  "Visual_Enum_TopNOff": "关闭",
+  "Visual_Enum_TopNItems": "固定项目数",
+  "Visual_Enum_TopNPercentage": "累计占比",
+  "Visual_Enum_TopNVariance": "绝对差异",
+  "Visual_Enum_TopNActual": "实际值绝对值",
+  "Visual_Others": "其他",
+  "Visual_Slice_ComparisonMode": "对比模式",
+  "Visual_Enum_ComparisonSingle": "选定基准",
+  "Visual_Enum_ComparisonAll": "全部可用基准"
 }

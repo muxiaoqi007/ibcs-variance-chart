@@ -22,11 +22,8 @@ setGlobal("SVGElement", w.SVGElement);
 setGlobal("getComputedStyle", w.getComputedStyle);
 setGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => setTimeout(cb, 0));
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { Visual } = require("../src/visual");
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { parseDataView, resolveBaseScenario } = require("../src/dataModel");
-// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { detectScenario } = require("../src/ibcs");
 
 let failures = 0;
@@ -37,21 +34,43 @@ function check(name: string, cond: boolean, detail?: string): void {
     }
 }
 
-function makeHost(): unknown {
+function makeHost(highContrast = false): unknown {
     let counter = 0;
+    let identityKey: string | null = null;
+    const selectedTargets: unknown[] = [];
     const builder: Record<string, unknown> = {};
-    builder.withCategory = () => builder;
+    builder.withCategory = (column: { identity?: Array<{ key?: string }> }, index: number) => {
+        const values = (column as { values?: unknown[] }).values;
+        identityKey = column.identity?.[index]?.key ?? String(values?.[index] ?? index);
+
+        return builder;
+    };
     builder.withSeries = () => builder;
     builder.withMeasure = () => builder;
     builder.createSelectionId = () => {
-        const key = ++counter;
+        const key = identityKey ?? String(++counter);
+        const hasIdentity = identityKey !== null;
+        identityKey = null;
 
-        return { key, equals: (o: { key: number }) => !!o && o.key === key };
+        return {
+            key,
+            equals: (o: { key: string }) => !!o && o.key === key,
+            getKey: () => key,
+            hasIdentity: () => hasIdentity
+        };
     };
 
     return {
         createSelectionManager: () => ({
-            select: async () => [],
+            select: async (target: unknown) => {
+                const targets = Array.isArray(target) ? target : [target];
+                if (targets.some((item) => !(item as { hasIdentity?: () => boolean })?.hasIdentity?.())) {
+                    throw new Error("Selection contained an empty identity");
+                }
+                selectedTargets.push(target);
+
+                return targets;
+            },
             clear: async () => [],
             hasSelection: () => false,
             getSelectionIds: () => [],
@@ -59,8 +78,16 @@ function makeHost(): unknown {
             registerOnSelectCallback: () => undefined
         }),
         createSelectionIdBuilder: () => builder,
-        createLocalizationManager: () => ({ getDisplayName: (k: string) => k, getLocalization: () => "en-US" }),
-        colorPalette: { getColor: () => ({ value: "#01B8AA" }) },
+        createLocalizationManager: () => ({
+            getDisplayName: (k: string) => k === "Visual_MoreRows" ? "+{0} more items" : k,
+            getLocalization: () => "en-US"
+        }),
+        colorPalette: {
+            isHighContrast: highContrast,
+            foreground: { value: "#FFFFFF" },
+            background: { value: "#000000" },
+            getColor: () => ({ value: "#01B8AA" })
+        },
         tooltipService: { enabled: () => true, show: () => undefined, hide: () => undefined },
         eventService: {
             renderingStarted: () => undefined,
@@ -72,7 +99,8 @@ function makeHost(): unknown {
         },
         hostCapabilities: { allowInteractions: true },
         persistProperties: () => undefined,
-        applyJsonFilter: () => undefined
+        applyJsonFilter: () => undefined,
+        __selectedTargets: selectedTargets
     };
 }
 
@@ -137,24 +165,114 @@ function timeSeriesDataView(): unknown {
     const timeCol = { identity: [], source: { displayName: "Month", roles: { timeAxis: true } }, values: timeVals };
     const scenCol = { identity: [], source: { displayName: "Scenario", roles: { scenario: true } }, values: scenVals };
     const valCol = { source: { displayName: "Sales", queryName: "value", roles: { value: true }, format: "#,0" }, values: vals };
+    const tooltipCol = {
+        source: { displayName: "Margin", queryName: "margin", roles: { tooltips: true }, format: "0.0%" },
+        values: months.flatMap((_m, i) => [0.2 + i * 0.01, 0.2 + i * 0.01])
+    };
 
     return {
-        metadata: { columns: [timeCol.source, scenCol.source, valCol.source] },
-        categorical: { categories: [timeCol, scenCol], values: [valCol] }
+        metadata: { columns: [timeCol.source, scenCol.source, valCol.source, tooltipCol.source] },
+        categorical: { categories: [timeCol, scenCol], values: [valCol, tooltipCol] }
     };
+}
+
+function duplicateLabelDataView(): unknown {
+    const categoryCol = {
+        identity: [{ key: "north" }, { key: "north" }, { key: "south" }, { key: "south" }],
+        source: { displayName: "Branch", roles: { category: true } },
+        values: ["Central", "Central", "Central", "Central"]
+    };
+    const scenarioCol = {
+        source: { displayName: "Scenario", roles: { scenario: true } },
+        values: ["AC", "PY", "AC", "PY"]
+    };
+    const valueCol = {
+        source: { displayName: "Sales", roles: { value: true } },
+        values: [10, 8, 20, 15]
+    };
+
+    return {
+        metadata: { columns: [categoryCol.source, scenarioCol.source, valueCol.source] },
+        categorical: { categories: [categoryCol, scenarioCol], values: [valueCol] }
+    };
+}
+
+function manyRowsDataView(): unknown {
+    const count = 40;
+    const categoryCol = {
+        identity: [],
+        source: { displayName: "Category", roles: { category: true } },
+        values: Array.from({ length: count }, (_v, i) => `Item ${i + 1}`)
+    };
+    const acCol = {
+        source: { displayName: "AC", roles: { ac: true } },
+        values: Array.from({ length: count }, (_v, i) => 100 - i)
+    };
+    const pyCol = {
+        source: { displayName: "PY", roles: { py: true } },
+        values: Array.from({ length: count }, (_v, i) => 90 - i)
+    };
+
+    return {
+        metadata: { columns: [categoryCol.source, acCol.source, pyCol.source] },
+        categorical: { categories: [categoryCol], values: [acCol, pyCol] }
+    };
+}
+
+function topNDataView(mode: "items" | "percentage", limit: number): unknown {
+    const categoryCol = {
+        identity: [],
+        source: { displayName: "Category", roles: { category: true } },
+        values: ["Alpha", "Beta", "Gamma", "Delta"]
+    };
+    const acCol = {
+        source: { displayName: "AC", roles: { ac: true } },
+        values: [60, 30, 10, 5]
+    };
+    const pyCol = {
+        source: { displayName: "PY", roles: { py: true } },
+        values: [40, 20, 8, 4]
+    };
+
+    return {
+        metadata: {
+            columns: [categoryCol.source, acCol.source, pyCol.source],
+            objects: {
+                topN: {
+                    mode,
+                    count: limit,
+                    percentage: limit,
+                    rankBy: "ac",
+                    includeOthers: true
+                }
+            }
+        },
+        categorical: { categories: [categoryCol], values: [acCol, pyCol] }
+    };
+}
+
+function multiComparisonDataView(mode: "variance" | "table" | "waterfall"): unknown {
+    const dataView = dimensionModeDataView() as Record<string, unknown>;
+    const metadata = dataView.metadata as Record<string, unknown>;
+    metadata.objects = {
+        chart: { mode },
+        scenarios: { comparisonMode: "all", baseScenario: "auto" }
+    };
+
+    return dataView;
 }
 
 function withMode(dv: Record<string, unknown>, mode: string): unknown {
     const metadata = dv.metadata as Record<string, unknown>;
     // Real Power BI dataViews carry evaluated literals in metadata.objects.
-    metadata.objects = { chart: { mode } };
+    metadata.objects = { ...(metadata.objects as Record<string, unknown> ?? {}), chart: { mode } };
 
     return dv;
 }
 
 function makeVisual(host: unknown): unknown {
     const el = (w.document as Document).getElementById("host") as HTMLDivElement;
-    el.innerHTML = "";
+    el.replaceChildren();
 
     return new Visual({ element: el, host });
 }
@@ -218,6 +336,12 @@ check("dimension parsed", !!parsedD && parsedD.rows.length === 3, `rows=${parsed
 check("dimension pivot AC", parsedD?.rows[0]?.values.AC === 36.4e9);
 check("dimension pivot PL", parsedD?.rows[0]?.values.PL === 35e9);
 
+console.log("=== parse: duplicate labels preserve distinct identities ===");
+const parsedDuplicates = parseDataView(duplicateLabelDataView(), host);
+check("duplicate display labels remain distinct", parsedDuplicates?.rows.length === 2, `rows=${parsedDuplicates?.rows.length}`);
+check("first duplicate identity aggregates scenarios", parsedDuplicates?.rows[0]?.values.AC === 10 && parsedDuplicates?.rows[0]?.values.PY === 8);
+check("second duplicate identity aggregates scenarios", parsedDuplicates?.rows[1]?.values.AC === 20 && parsedDuplicates?.rows[1]?.values.PY === 15);
+
 console.log("=== render: dimension mode as table ===");
 html = runUpdate(makeVisual(host), withMode(dimensionModeDataView() as Record<string, unknown>, "table"));
 check("table rendered rows", (html.match(/ibcs-trow/g) ?? []).length >= 3, `trows=${(html.match(/ibcs-trow/g) ?? []).length}`);
@@ -227,6 +351,42 @@ console.log("=== render: time series mode ===");
 html = runUpdate(makeVisual(host), withMode(timeSeriesDataView() as Record<string, unknown>, "timeseries"));
 check("time series bars", (html.match(/<rect/g) ?? []).length >= 8, `rects=${(html.match(/<rect/g) ?? []).length}`);
 check("AC series group", html.includes("ibcs-series-AC"));
+check("time series includes extra tooltip", html.includes("Margin:"));
+check("data points expose keyboard semantics", html.includes('tabindex="0"') && html.includes('role="button"'));
+
+console.log("=== responsive density ===");
+html = runUpdate(makeVisual(host), manyRowsDataView(), 480, 120);
+check("overflow note appears", html.includes("ibcs-overflow-note") && html.includes("more items"));
+check("only visible rows are rendered", (html.match(/ibcs-row/g) ?? []).length < 40);
+html = runUpdate(makeVisual(host), withMode(measureModeDataView() as Record<string, unknown>, "table"), 120, 180);
+check("narrow table drops variance headers", !html.includes(">ΔPY<") && !html.includes(">ΔPY%<"));
+
+console.log("=== Top N + Others ===");
+const topNHost = makeHost() as { __selectedTargets: unknown[] };
+html = runUpdate(makeVisual(topNHost), topNDataView("items", 2));
+check("item Top N keeps requested items plus Others", (html.match(/ibcs-row/g) ?? []).length === 3);
+check("item Top N includes Others", html.includes("Visual_Others"));
+check("item Top N excludes lower ranked labels", !html.includes("Gamma") && !html.includes("Delta"));
+const othersHit = (w.document as Document).querySelector("g.ibcs-row:last-of-type rect.ibcs-hit") as SVGRectElement;
+othersHit.dispatchEvent(new (w.MouseEvent as typeof MouseEvent)("click", { bubbles: true }));
+check("clicking Others selects all aggregated identities", Array.isArray(topNHost.__selectedTargets[0]) && (topNHost.__selectedTargets[0] as unknown[]).length === 2);
+html = runUpdate(makeVisual(host), topNDataView("percentage", 80));
+check("percentage Top N reaches cumulative threshold", html.includes("Alpha") && html.includes("Beta") && !html.includes("Gamma"));
+html = runUpdate(makeVisual(host), withMode(topNDataView("items", 2) as Record<string, unknown>, "waterfall"));
+check("Top N applies to waterfall", html.includes("Visual_Others") && !html.includes("Gamma"));
+
+console.log("=== multiple comparisons ===");
+html = runUpdate(makeVisual(host), multiComparisonDataView("variance"), 900, 660);
+check("variance renders PY and PL panels", html.includes("ibcs-comparison-PY") && html.includes("ibcs-comparison-PL"));
+check("variance panel headers identify both bases", html.includes("ΔPY") && html.includes("ΔPL"));
+html = runUpdate(makeVisual(host), multiComparisonDataView("table"), 900, 660);
+check("table renders multiple comparison panels", (html.match(/ibcs-comparison-panel/g) ?? []).length === 2);
+html = runUpdate(makeVisual(host), multiComparisonDataView("waterfall"), 900, 660);
+check("waterfall renders multiple comparison panels", html.includes("ibcs-comparison-PY") && html.includes("ibcs-comparison-PL"));
+
+console.log("=== high contrast ===");
+html = runUpdate(makeVisual(makeHost(true)), measureModeDataView());
+check("high contrast uses host foreground", html.includes('fill="#FFFFFF"'));
 
 console.log("=== render: waterfall mode (base PY) ===");
 html = runUpdate(makeVisual(host), withMode(dvMeasures as Record<string, unknown>, "waterfall"));

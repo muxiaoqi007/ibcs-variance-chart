@@ -44,42 +44,79 @@ export interface TooltipItem {
     value: string;
 }
 
+export type SelectionTarget = powerbi.visuals.ISelectionId | powerbi.visuals.ISelectionId[];
+
 export function bindInteractions(
     ctx: RenderContext,
     sel: d3.Selection<any, any, any, unknown>,
-    id: () => powerbi.visuals.ISelectionId,
+    id: () => SelectionTarget,
     tooltipItems: () => TooltipItem[]
 ): void {
-    sel.style("cursor", ctx.allowInteractions ? "pointer" : "default");
+    const validIds = (): powerbi.visuals.ISelectionId[] => {
+        const target = id();
+
+        return (Array.isArray(target) ? target : [target]).filter((item) => item?.hasIdentity?.());
+    };
+    const canSelect = ctx.allowInteractions && validIds().length > 0;
+    sel.style("cursor", canSelect ? "pointer" : "default");
+    sel
+        .attr("tabindex", canSelect ? 0 : null)
+        .attr("role", canSelect ? "button" : "img")
+        .attr("aria-label", () => tooltipItems().map((item) => `${item.displayName}: ${item.value}`).join(", "));
 
     // The tooltip wrapper binds pointerover/pointerout/pointermove itself.
-    ctx.tooltip.addTooltip(
-        sel,
-        () => tooltipItems(),
-        () => id(),
-        false
-    );
+    const tooltipIdentity = validIds()[0];
+    if (tooltipIdentity) {
+        ctx.tooltip.addTooltip(sel, () => tooltipItems(), () => tooltipIdentity, false);
+    } else {
+        ctx.tooltip.addTooltip(sel, () => tooltipItems(), undefined, false);
+    }
 
     sel
         .on("click", (event: MouseEvent) => {
-            if (!ctx.allowInteractions) {
+            const identities = validIds();
+            if (!ctx.allowInteractions || identities.length === 0) {
                 return;
             }
             event.stopPropagation();
-            ctx.selectionManager.select(id(), event.ctrlKey).then(() => {
+            ctx.selectionManager.select(identities.length === 1 ? identities[0] : identities, event.ctrlKey).then(() => {
                 ctx.onInteraction();
             });
         })
         .on("contextmenu", (event: MouseEvent) => {
+            const identities = validIds();
             if (!ctx.allowInteractions) {
                 return;
             }
             event.preventDefault();
             event.stopPropagation();
-            ctx.selectionManager.showContextMenu(id(), {
+            if (identities.length !== 1) {
+                return;
+            }
+            ctx.selectionManager.showContextMenu(identities[0], {
                 x: event.clientX,
                 y: event.clientY
             });
+        })
+        .on("keydown", (event: KeyboardEvent) => {
+            const identities = validIds();
+            if (!ctx.allowInteractions || identities.length === 0) {
+                return;
+            }
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                ctx.selectionManager.select(identities.length === 1 ? identities[0] : identities, event.ctrlKey).then(() => ctx.onInteraction());
+            } else if (event.key === "F10" && event.shiftKey && identities.length === 1) {
+                event.preventDefault();
+                event.stopPropagation();
+                const target = event.currentTarget as Element;
+                const bounds = target.getBoundingClientRect();
+                ctx.selectionManager.showContextMenu(identities[0], {
+                    x: bounds.left + bounds.width / 2,
+                    y: bounds.top + bounds.height / 2
+                });
+            }
         });
 }
 

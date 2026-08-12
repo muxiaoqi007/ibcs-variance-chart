@@ -26,7 +26,13 @@ class ScenariosCard extends formattingSettings.SimpleCard {
         value: "auto"
     });
 
-    slices = [this.baseScenario];
+    comparisonMode = new formattingSettings.AutoDropdown({
+        name: "comparisonMode",
+        displayNameKey: "Visual_Slice_ComparisonMode",
+        value: "single"
+    });
+
+    slices = [this.baseScenario, this.comparisonMode];
 }
 
 class VarianceCard extends formattingSettings.SimpleCard {
@@ -141,6 +147,43 @@ class SortCard extends formattingSettings.SimpleCard {
     slices = [this.field, this.direction];
 }
 
+class TopNCard extends formattingSettings.SimpleCard {
+    name = "topN";
+    displayNameKey = "Visual_Object_TopN";
+
+    mode = new formattingSettings.AutoDropdown({
+        name: "mode",
+        displayNameKey: "Visual_Slice_TopNMode",
+        value: "off"
+    });
+
+    count = new formattingSettings.NumUpDown({
+        name: "count",
+        displayNameKey: "Visual_Slice_TopNCount",
+        value: 10
+    });
+
+    percentage = new formattingSettings.NumUpDown({
+        name: "percentage",
+        displayNameKey: "Visual_Slice_TopNPercentage",
+        value: 80
+    });
+
+    rankBy = new formattingSettings.AutoDropdown({
+        name: "rankBy",
+        displayNameKey: "Visual_Slice_TopNRankBy",
+        value: "variance"
+    });
+
+    includeOthers = new formattingSettings.ToggleSwitch({
+        name: "includeOthers",
+        displayNameKey: "Visual_Slice_TopNIncludeOthers",
+        value: true
+    });
+
+    slices = [this.mode, this.count, this.percentage, this.rankBy, this.includeOthers];
+}
+
 export class VisualFormattingSettingsModel extends formattingSettings.Model {
     chart = new ChartCard();
     scenarios = new ScenariosCard();
@@ -148,6 +191,7 @@ export class VisualFormattingSettingsModel extends formattingSettings.Model {
     labels = new LabelsCard();
     notation = new NotationCard();
     sortSettings = new SortCard();
+    topN = new TopNCard();
 
-    cards = [this.chart, this.scenarios, this.variance, this.labels, this.notation, this.sortSettings];
+    cards = [this.chart, this.scenarios, this.variance, this.labels, this.notation, this.sortSettings, this.topN];
 }

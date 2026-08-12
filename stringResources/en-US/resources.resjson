@@ -67,5 +67,21 @@
   "Visual_Enum_UnitsNone": "None",
   "Visual_Enum_UnitsThousands": "Thousands",
   "Visual_Enum_UnitsMillions": "Millions",
-  "Visual_Enum_UnitsBillions": "Billions"
+  "Visual_Enum_UnitsBillions": "Billions",
+  "Visual_MoreRows": "+{0} more items",
+  "Visual_Object_TopN": "Top N + Others",
+  "Visual_Slice_TopNMode": "Mode",
+  "Visual_Slice_TopNCount": "Number of items",
+  "Visual_Slice_TopNPercentage": "Cumulative percentage",
+  "Visual_Slice_TopNRankBy": "Rank by",
+  "Visual_Slice_TopNIncludeOthers": "Include Others",
+  "Visual_Enum_TopNOff": "Off",
+  "Visual_Enum_TopNItems": "Items",
+  "Visual_Enum_TopNPercentage": "Cumulative percentage",
+  "Visual_Enum_TopNVariance": "Absolute variance",
+  "Visual_Enum_TopNActual": "Absolute actual",
+  "Visual_Others": "Others",
+  "Visual_Slice_ComparisonMode": "Comparison mode",
+  "Visual_Enum_ComparisonSingle": "Selected base",
+  "Visual_Enum_ComparisonAll": "All available"
 }

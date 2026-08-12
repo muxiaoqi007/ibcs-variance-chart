@@ -17,14 +17,19 @@ export interface CategoryRow {
     label: string;
     values: ScenarioValues;
     selectionId: powerbi.visuals.ISelectionId;
+    /** Multiple source identities when this row is a synthetic aggregate. */
+    selectionIds?: powerbi.visuals.ISelectionId[];
     tooltipRaw: Array<number | null>;
     firstRowIndex: number;
+    /** Synthetic aggregate produced by Top N + Others. */
+    isOthers?: boolean;
 }
 
 export interface TimeRow {
     label: string;
     values: ScenarioValues;
     selectionId: powerbi.visuals.ISelectionId;
+    tooltipRaw: Array<number | null>;
     firstRowIndex: number;
 }
 
@@ -159,20 +164,22 @@ export function parseDataView(
         if (label === null) {
             continue;
         }
-        let row = rowMap.get(label);
+        const anchorColumn = categoryCol ?? timeCol;
+        const candidateId = anchorColumn
+            ? host.createSelectionIdBuilder().withCategory(anchorColumn, leaf.rowIndex).createSelectionId()
+            : host.createSelectionIdBuilder().createSelectionId();
+        const identityKey = candidateId.hasIdentity?.() ? candidateId.getKey() : "";
+        const rowKey = identityKey || label;
+        let row = rowMap.get(rowKey);
         if (!row) {
-            const anchorColumn = categoryCol ?? timeCol;
-            const selectionId = anchorColumn
-                ? host.createSelectionIdBuilder().withCategory(anchorColumn, leaf.rowIndex).createSelectionId()
-                : host.createSelectionIdBuilder().createSelectionId();
             row = {
                 label,
                 values: {},
-                selectionId,
+                selectionId: candidateId,
                 tooltipRaw: leaf.tooltipRaw,
                 firstRowIndex: leaf.rowIndex
             };
-            rowMap.set(label, row);
+            rowMap.set(rowKey, row);
             rows.push(row);
         }
         row.values[leaf.kind] = (row.values[leaf.kind] ?? 0) + leaf.value;
@@ -187,15 +194,19 @@ export function parseDataView(
             if (leaf.timeLabel === null) {
                 continue;
             }
-            let row = timeMap.get(leaf.timeLabel);
+            const candidateId = host.createSelectionIdBuilder().withCategory(timeCol, leaf.rowIndex).createSelectionId();
+            const identityKey = candidateId.hasIdentity?.() ? candidateId.getKey() : "";
+            const rowKey = identityKey || leaf.timeLabel;
+            let row = timeMap.get(rowKey);
             if (!row) {
                 row = {
                     label: leaf.timeLabel,
                     values: {},
-                    selectionId: host.createSelectionIdBuilder().withCategory(timeCol, leaf.rowIndex).createSelectionId(),
+                    selectionId: candidateId,
+                    tooltipRaw: leaf.tooltipRaw,
                     firstRowIndex: leaf.rowIndex
                 };
-                timeMap.set(leaf.timeLabel, row);
+                timeMap.set(rowKey, row);
                 timeRows.push(row);
             }
             row.values[leaf.kind] = (row.values[leaf.kind] ?? 0) + leaf.value;

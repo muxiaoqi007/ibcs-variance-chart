@@ -144,6 +144,16 @@
               { "value": "FC", "displayName": "Forecast (FC)", "displayNameKey": "Visual_Enum_FC" }
             ]
           }
+        },
+        "comparisonMode": {
+          "displayName": "Comparison mode",
+          "displayNameKey": "Visual_Slice_ComparisonMode",
+          "type": {
+            "enumeration": [
+              { "value": "single", "displayName": "Selected base", "displayNameKey": "Visual_Enum_ComparisonSingle" },
+              { "value": "all", "displayName": "All available", "displayNameKey": "Visual_Enum_ComparisonAll" }
+            ]
+          }
         }
       }
     },
@@ -268,6 +278,48 @@
               { "value": "asc", "displayName": "Ascending", "displayNameKey": "Visual_Enum_Asc" }
             ]
           }
+        }
+      }
+    },
+    "topN": {
+      "displayName": "Top N + Others",
+      "displayNameKey": "Visual_Object_TopN",
+      "properties": {
+        "mode": {
+          "displayName": "Mode",
+          "displayNameKey": "Visual_Slice_TopNMode",
+          "type": {
+            "enumeration": [
+              { "value": "off", "displayName": "Off", "displayNameKey": "Visual_Enum_TopNOff" },
+              { "value": "items", "displayName": "Items", "displayNameKey": "Visual_Enum_TopNItems" },
+              { "value": "percentage", "displayName": "Cumulative percentage", "displayNameKey": "Visual_Enum_TopNPercentage" }
+            ]
+          }
+        },
+        "count": {
+          "displayName": "Number of items",
+          "displayNameKey": "Visual_Slice_TopNCount",
+          "type": { "numeric": true }
+        },
+        "percentage": {
+          "displayName": "Cumulative percentage",
+          "displayNameKey": "Visual_Slice_TopNPercentage",
+          "type": { "numeric": true }
+        },
+        "rankBy": {
+          "displayName": "Rank by",
+          "displayNameKey": "Visual_Slice_TopNRankBy",
+          "type": {
+            "enumeration": [
+              { "value": "variance", "displayName": "Absolute variance", "displayNameKey": "Visual_Enum_TopNVariance" },
+              { "value": "ac", "displayName": "Absolute actual", "displayNameKey": "Visual_Enum_TopNActual" }
+            ]
+          }
+        },
+        "includeOthers": {
+          "displayName": "Include Others",
+          "displayNameKey": "Visual_Slice_TopNIncludeOthers",
+          "type": { "bool": true }
         }
       }
     }

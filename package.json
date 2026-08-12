@@ -1,6 +1,6 @@
 {
   "name": "ibcs-variance-chart",
-  "version": "1.5.0",
+  "version": "1.7.1",
   "description": "IBCS-style chart suite for Power BI: variance composite chart, semantic time series, waterfall and semantic table with AC/PY/PL/FC scenario notation (Zebra BI inspired)",
   "main": "src/visual.ts",
   "license": "MIT",
@@ -11,6 +11,7 @@
     "prepare-api-schema": "node scripts/prepare-api-schema.js",
     "build": "npm run prepare-api-schema && webpack --mode production",
     "dev": "npm run prepare-api-schema && webpack --mode development --watch",
+    "test": "webpack --config webpack.test.config.js && node .test-build/smoke.bundle.js",
     "lint": "npx eslint .",
     "eslint": "npx eslint ."
   },

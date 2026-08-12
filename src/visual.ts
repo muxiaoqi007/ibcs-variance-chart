@@ -124,6 +124,21 @@ export class Visual implements IVisual {
     }
 
     private resolveColors(): NotationColors {
+        const palette = this.host.colorPalette;
+        if (palette.isHighContrast) {
+            const foreground = palette.foreground.value;
+
+            return {
+                ac: foreground,
+                outline: foreground,
+                positive: foreground,
+                negative: foreground,
+                grid: foreground,
+                text: foreground,
+                inverseText: palette.background.value
+            };
+        }
+
         return {
             ...DEFAULT_COLORS,
             ac: this.getColor(this.formattingModel.notation.acColor.value, DEFAULT_COLORS.ac),
@@ -153,10 +168,17 @@ export class Visual implements IVisual {
         const mode = (settings.chart.mode.value as ChartMode) || "variance";
         const baseKind = resolveBaseScenario(String(settings.scenarios.baseScenario.value), parsed.present);
         const baseLabel = (baseKind && parsed.scenarioDisplay[baseKind]) || baseKind || "";
+        const comparisonKinds = String(settings.scenarios.comparisonMode.value ?? "single") === "all"
+            ? (["PY", "PL", "FC"] as ScenarioKind[]).filter((kind) => parsed.present.includes(kind))
+            : (baseKind ? [baseKind] : []);
+
+        const topNRows = mode === "timeseries"
+            ? parsed.rows
+            : this.applyTopN(parsed.rows, baseKind);
 
         // Zebra-BI-style sorting (persisted via header clicks / formatting pane).
         const sortedRows = this.sortRows(
-            parsed.rows,
+            topNRows,
             baseKind,
             String(settings.sortSettings.field.value ?? "none"),
             String(settings.sortSettings.direction.value ?? "desc")
@@ -212,12 +234,18 @@ export class Visual implements IVisual {
             onInteraction: () => this.redraw()
         };
 
+        if (mode !== "timeseries" && comparisonKinds.length > 1) {
+            this.renderComparisonPanels(ctx, parsed, comparisonKinds, mode, buildTooltipExtra);
+
+            return;
+        }
+
         switch (mode) {
             case "timeseries":
                 this.renderTimeSeriesMode(ctx, parsed, baseKind, baseLabel, buildTooltipExtra);
                 break;
             case "waterfall":
-                this.renderWaterfallMode(ctx, parsed, baseKind, baseLabel, buildTooltipExtra);
+                this.renderWaterfallMode(ctx, rowsParsed, baseKind, baseLabel, buildTooltipExtra);
                 break;
             case "table":
                 this.renderTableMode(ctx, rowsParsed, baseKind, baseLabel, buildTooltipExtra);
@@ -251,7 +279,8 @@ export class Visual implements IVisual {
 
             return field === "delta" ? delta : base !== 0 ? delta / base : null;
         };
-        const sorted = [...rows];
+        const sorted = rows.filter((row) => !row.isOthers);
+        const others = rows.filter((row) => row.isOthers);
         sorted.sort((a, b) => {
             const va = metric(a);
             const vb = metric(b);
@@ -268,7 +297,125 @@ export class Visual implements IVisual {
             return direction === "asc" ? va - vb : vb - va;
         });
 
-        return sorted;
+        return sorted.concat(others);
+    }
+
+    private applyTopN(rows: ParseOutput["rows"], baseKind: ScenarioKind | null): ParseOutput["rows"] {
+        const settings = this.formattingModel.topN;
+        const mode = String(settings.mode.value ?? "off");
+        if (mode === "off" || rows.length <= 1) {
+            return rows;
+        }
+
+        const rankBy = String(settings.rankBy.value ?? "variance");
+        const score = (row: ParseOutput["rows"][number]): number => {
+            const ac = row.values.AC ?? row.values.UNKNOWN ?? 0;
+            if (rankBy === "variance" && baseKind) {
+                const base = row.values[baseKind];
+                if (base !== undefined && row.values.AC !== undefined) {
+                    return Math.abs(row.values.AC - base);
+                }
+            }
+
+            return Math.abs(ac);
+        };
+
+        const ranked = [...rows].sort((a, b) => score(b) - score(a));
+        let take = ranked.length;
+        if (mode === "items") {
+            take = Math.min(ranked.length, Math.max(1, Math.floor(Number(settings.count.value) || 10)));
+        } else if (mode === "percentage") {
+            const target = Math.min(100, Math.max(1, Number(settings.percentage.value) || 80)) / 100;
+            const total = ranked.reduce((sum, row) => sum + score(row), 0);
+            if (total > 0) {
+                let cumulative = 0;
+                take = 0;
+                while (take < ranked.length && cumulative / total < target) {
+                    cumulative += score(ranked[take]);
+                    take++;
+                }
+            }
+        }
+
+        if (take >= ranked.length) {
+            return ranked;
+        }
+        const visible = ranked.slice(0, take);
+        if (!settings.includeOthers.value) {
+            return visible;
+        }
+
+        const hidden = ranked.slice(take);
+        const values: Partial<Record<ScenarioKind, number>> = {};
+        const tooltipRaw = Array.from({ length: Math.max(0, ...hidden.map((row) => row.tooltipRaw.length)) }, () => null as number | null);
+        for (const row of hidden) {
+            for (const [kind, value] of Object.entries(row.values) as Array<[ScenarioKind, number]>) {
+                values[kind] = (values[kind] ?? 0) + value;
+            }
+        }
+        visible.push({
+            label: this.localizationManager.getDisplayName("Visual_Others"),
+            values,
+            selectionId: hidden[0].selectionId,
+            selectionIds: hidden.map((row) => row.selectionId),
+            tooltipRaw,
+            firstRowIndex: -1,
+            isOthers: true
+        });
+
+        return visible;
+    }
+
+    private renderComparisonPanels(
+        ctx: RenderContext,
+        parsed: ParseOutput,
+        baseKinds: ScenarioKind[],
+        mode: Exclude<ChartMode, "timeseries">,
+        buildTooltipExtra: (raw: Array<number | null>) => TooltipItem[]
+    ): void {
+        const gap = 4;
+        const panelHeight = Math.max(1, (ctx.height - gap * (baseKinds.length - 1)) / baseKinds.length);
+        // Keep the same category set in every panel so comparisons remain aligned.
+        const sharedRows = this.applyTopN(parsed.rows, baseKinds[0]);
+        baseKinds.forEach((baseKind, index) => {
+            const y = index * (panelHeight + gap);
+            const panelSvg = ctx.svg
+                .append<SVGSVGElement>("svg")
+                .attr("class", `ibcs-comparison-panel ibcs-comparison-${baseKind}`)
+                .attr("x", 0)
+                .attr("y", y)
+                .attr("width", ctx.width)
+                .attr("height", panelHeight)
+                .attr("overflow", "hidden")
+                .attr("aria-label", baseKind);
+            const panelCtx: RenderContext = { ...ctx, svg: panelSvg, height: panelHeight };
+            const rows = this.sortRows(
+                sharedRows,
+                baseKind,
+                String(ctx.settings.sortSettings.field.value ?? "none"),
+                String(ctx.settings.sortSettings.direction.value ?? "desc")
+            );
+            const panelParsed: ParseOutput = { ...parsed, rows };
+            const baseLabel = parsed.scenarioDisplay[baseKind] || baseKind;
+
+            if (mode === "variance") {
+                this.renderVarianceMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra);
+            } else if (mode === "table") {
+                this.renderTableMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra);
+            } else {
+                this.renderWaterfallMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra);
+            }
+
+            if (index < baseKinds.length - 1) {
+                ctx.svg.append("line")
+                    .attr("x1", 0)
+                    .attr("x2", ctx.width)
+                    .attr("y1", y + panelHeight + gap / 2)
+                    .attr("y2", y + panelHeight + gap / 2)
+                    .attr("stroke", ctx.colors.grid)
+                    .attr("stroke-width", 1);
+            }
+        });
     }
 
     private renderVarianceMode(
@@ -290,6 +437,7 @@ export class Visual implements IVisual {
                 return {
                     label: r.label,
                     selectionId: r.selectionId,
+                    selectionIds: r.selectionIds,
                     ac,
                     base,
                     delta,
@@ -306,7 +454,7 @@ export class Visual implements IVisual {
         parsed: ParseOutput,
         _baseKind: ScenarioKind | null,
         _baseLabel: string,
-        _buildTooltipExtra: (raw: Array<number | null>) => TooltipItem[]
+        buildTooltipExtra: (raw: Array<number | null>) => TooltipItem[]
     ): void {
         const source = parsed.timeRows ?? parsed.rows;
         const model: TimeSeriesModel = {
@@ -316,7 +464,7 @@ export class Visual implements IVisual {
                 label: r.label,
                 selectionId: r.selectionId,
                 values: r.values,
-                tooltipExtra: []
+                tooltipExtra: buildTooltipExtra(r.tooltipRaw)
             }))
         };
         renderTimeSeries(ctx, model);
@@ -350,6 +498,7 @@ export class Visual implements IVisual {
                     label: r.label,
                     value: ac - base,
                     selectionId: r.selectionId,
+                    selectionIds: r.selectionIds,
                     tooltipExtra: buildTooltipExtra(r.tooltipRaw)
                 });
             }
@@ -369,6 +518,7 @@ export class Visual implements IVisual {
                     label: r.label,
                     value: ac,
                     selectionId: r.selectionId,
+                    selectionIds: r.selectionIds,
                     tooltipExtra: buildTooltipExtra(r.tooltipRaw)
                 });
             }
@@ -398,6 +548,7 @@ export class Visual implements IVisual {
                 return {
                     label: r.label,
                     selectionId: r.selectionId,
+                    selectionIds: r.selectionIds,
                     ac,
                     base,
                     delta,

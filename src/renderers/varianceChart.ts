@@ -16,6 +16,7 @@ import { RenderContext, bindInteractions, selectionOpacity, TooltipItem, clamp, 
 export interface VarianceRow {
     label: string;
     selectionId: powerbi.visuals.ISelectionId;
+    selectionIds?: powerbi.visuals.ISelectionId[];
     ac: number | null;
     base: number | null;
     delta: number | null;
@@ -33,28 +34,42 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
     const { svg, width, height, colors, settings, formatter, fontSize } = ctx;
     ensureHatchPattern(svg, colors.outline);
 
-    const rows = model.rows;
+    const allRows = model.rows;
     const baseKind = model.baseKind;
-    const showAbs = settings.variance.showDeltaAbs.value && baseKind !== null;
-    const showPct = settings.variance.showDeltaPct.value && baseKind !== null;
+    let showAbs = settings.variance.showDeltaAbs.value && baseKind !== null;
+    let showPct = settings.variance.showDeltaPct.value && baseKind !== null;
     const colorMode = settings.variance.colorMode.value as "semantic" | "neutral";
     const goodDirection = settings.variance.goodDirection.value as "up" | "down";
     const showLabels = settings.labels.showValueLabels.value;
 
     const headerH = fontSize + 12;
     const bottomPad = 4;
-    const rowArea = Math.max(0, height - headerH - bottomPad);
-    const rowH = rows.length > 0 ? clamp(rowArea / rows.length, 16, 44) : 0;
+    const minRowH = Math.max(14, fontSize + 4);
+    const initialRowArea = Math.max(0, height - headerH - bottomPad);
+    const needsOverflowNotice = allRows.length > Math.max(1, Math.floor(initialRowArea / minRowH));
+    const overflowH = needsOverflowNotice ? fontSize + 7 : 0;
+    const rowArea = Math.max(0, initialRowArea - overflowH);
+    const visibleCount = Math.max(1, Math.floor(rowArea / minRowH));
+    const rows = allRows.slice(0, visibleCount);
+    const hiddenCount = allRows.length - rows.length;
+    const rowH = rows.length > 0 ? Math.min(44, Math.max(1, rowArea / rows.length)) : 0;
 
     // --- label column ---
     const configuredLabelW = settings.notation.labelWidth.value;
     const maxLabelPx = d3.max(rows, (r) => measureText(r.label, fontSize)) ?? 0;
+    const maxLabelW = Math.max(22, width * 0.36);
     const labelW = configuredLabelW > 0
-        ? Math.min(configuredLabelW, width * 0.6)
-        : clamp(maxLabelPx + 20, 64, width * 0.36);
+        ? clamp(configuredLabelW, 22, maxLabelW)
+        : clamp(maxLabelPx + 20, 22, maxLabelW);
 
     const gap = 14;
     const plotW = Math.max(0, width - labelW - gap);
+    if (showAbs && showPct && plotW < 210) {
+        showPct = false;
+    }
+    if (showAbs && plotW < 130) {
+        showAbs = false;
+    }
     let wAc = plotW;
     let wAbs = 0;
     let wPct = 0;
@@ -125,12 +140,22 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
         .attr("y", headerH - 7)
         .attr("font-size", fontSize - 1)
         .attr("font-weight", 600)
-        .attr("fill", "#767676")
+        .attr("fill", colors.outline)
+        .attr("tabindex", ctx.allowInteractions ? 0 : null)
+        .attr("role", "button")
+        .attr("aria-label", (d) => d.text)
         .style("cursor", "pointer")
         .text((d) => d.text)
         .on("click", (event: MouseEvent, d) => {
             event.stopPropagation();
             cycleSort(ctx, d.sort);
+        })
+        .on("keydown", (event: KeyboardEvent, d) => {
+            if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                event.stopPropagation();
+                cycleSort(ctx, d.sort);
+            }
         });
 
     const body = svg.append("g").attr("class", "ibcs-body").attr("transform", `translate(0, ${headerH})`);
@@ -151,7 +176,7 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
         .attr("x2", width)
         .attr("y1", 0)
         .attr("y2", 0)
-        .attr("stroke", "#ECECEC")
+        .attr("stroke", colors.grid)
         .attr("stroke-width", 1);
 
     // category labels (right aligned, IBCS table convention)
@@ -192,7 +217,7 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
                     .attr("dy", "0.35em")
                     .attr("text-anchor", fitsOutside ? "start" : "end")
                     .attr("font-size", fontSize - 1)
-                    .attr("fill", fitsOutside ? colors.text : "#FFFFFF")
+                    .attr("fill", fitsOutside ? colors.text : colors.inverseText)
                     .text(text);
             });
     }
@@ -325,6 +350,17 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
 
                 return items.concat(d.tooltipExtra);
             };
-            bindInteractions(ctx, d3.select(this), () => d.selectionId, tooltipItems);
+            bindInteractions(ctx, d3.select(this), () => d.selectionIds ?? d.selectionId, tooltipItems);
         });
+
+    if (hiddenCount > 0) {
+        svg.append("text")
+            .attr("class", "ibcs-overflow-note")
+            .attr("x", width - 4)
+            .attr("y", height - 4)
+            .attr("text-anchor", "end")
+            .attr("font-size", Math.max(8, fontSize - 1))
+            .attr("fill", colors.outline)
+            .text(ctx.localization.getDisplayName("Visual_MoreRows").replace("{0}", String(hiddenCount)));
+    }
 }
