@@ -79,7 +79,16 @@ function makeHost(highContrast = false): unknown {
         }),
         createSelectionIdBuilder: () => builder,
         createLocalizationManager: () => ({
-            getDisplayName: (k: string) => k === "Visual_MoreRows" ? "+{0} more items" : k,
+            getDisplayName: (k: string) => {
+                if (k === "Visual_MoreRows") {
+                    return "+{0} more items";
+                }
+                if (k === "Visual_Tooltip_Category") {
+                    return "Category";
+                }
+
+                return k;
+            },
             getLocalization: () => "en-US"
         }),
         colorPalette: {
@@ -321,6 +330,40 @@ check("delta bars rendered", html.includes("ibcs-delta-bar"));
 check("ΔPY header present", html.includes("ΔPY"));
 check("labels present", (html.match(/<text/g) ?? []).length >= 5, `texts=${(html.match(/<text/g) ?? []).length}`);
 
+console.log("=== formatting model and runtime recovery ===");
+const formattingVisual = makeVisual(makeHost()) as {
+    update: (options: unknown) => void;
+    getFormattingModel: () => { cards?: Array<{ uid?: string; groups?: Array<{ slices?: unknown[] }> }> };
+    formattingSettingsService: {
+        populateFormattingSettingsModel: (...args: unknown[]) => unknown;
+        buildFormattingModel: (...args: unknown[]) => unknown;
+    };
+};
+const formattingModel = formattingVisual.getFormattingModel();
+check("custom formatting cards are registered", (formattingModel.cards?.length ?? 0) === 7);
+check("notation formatting card is registered", formattingModel.cards?.some((card) => card.uid === "notation-card") === true);
+const originalPopulate = formattingVisual.formattingSettingsService.populateFormattingSettingsModel;
+formattingVisual.formattingSettingsService.populateFormattingSettingsModel = () => {
+    throw "stale formatting metadata";
+};
+html = runUpdate(formattingVisual, measureModeDataView());
+check("stale formatting metadata cannot blank the visual", html.includes("ibcs-ac-bar"));
+formattingVisual.formattingSettingsService.populateFormattingSettingsModel = originalPopulate;
+
+const errorHost = makeHost() as Record<string, unknown>;
+errorHost.eventService = {
+    renderingStarted: () => undefined,
+    renderingFinished: () => undefined,
+    renderingFailed: () => undefined
+};
+Object.defineProperty(errorHost, "colorPalette", {
+    get: () => {
+        throw "simulated host failure";
+    }
+});
+html = runUpdate(makeVisual(errorHost), measureModeDataView());
+check("non-Error host failures render a visible diagnostic", html.includes("Render error") && html.includes("simulated host failure"));
+
 console.log("=== sort: persisted sortSettings (ac asc) ===");
 const dvSorted = measureModeDataView() as Record<string, unknown>;
 (dvSorted.metadata as Record<string, unknown>).objects = { sortSettings: { field: "ac", direction: "asc" } };
@@ -361,6 +404,27 @@ check("only visible rows are rendered", (html.match(/ibcs-row/g) ?? []).length <
 html = runUpdate(makeVisual(host), withMode(measureModeDataView() as Record<string, unknown>, "table"), 120, 180);
 check("narrow table drops variance headers", !html.includes(">ΔPY<") && !html.includes(">ΔPY%<"));
 
+console.log("=== table row height ===");
+const fixedRowHeightView = withMode(measureModeDataView() as Record<string, unknown>, "table") as Record<string, unknown>;
+const fixedRowHeightMetadata = fixedRowHeightView.metadata as Record<string, unknown>;
+fixedRowHeightMetadata.objects = {
+    ...(fixedRowHeightMetadata.objects as Record<string, unknown>),
+    notation: { rowHeight: 40 }
+};
+html = runUpdate(makeVisual(host), fixedRowHeightView, 900, 420);
+check("configured table row height is applied", html.includes('translate(0, 40)'));
+check("configured row height preserves values", html.includes("36.40bn") || html.includes("36,400,000,000"), html);
+const tableRow = (w.document as Document).querySelector("g.ibcs-trow");
+check("table hit area stays behind values", tableRow?.firstElementChild?.classList.contains("ibcs-hit") === true);
+const fixedVarianceHeightView = measureModeDataView() as Record<string, unknown>;
+const fixedVarianceHeightMetadata = fixedVarianceHeightView.metadata as Record<string, unknown>;
+fixedVarianceHeightMetadata.objects = { notation: { rowHeight: 40 } };
+html = runUpdate(makeVisual(host), fixedVarianceHeightView, 900, 420);
+check("configured variance row height is applied", html.includes('translate(0, 40)'));
+check("configured variance row height preserves values", html.includes("36.40bn") || html.includes("36,400,000,000"));
+const varianceRow = (w.document as Document).querySelector("g.ibcs-row");
+check("variance hit area stays behind content", varianceRow?.firstElementChild?.classList.contains("ibcs-hit") === true);
+
 console.log("=== Top N + Others ===");
 const topNHost = makeHost() as { __selectedTargets: unknown[] };
 html = runUpdate(makeVisual(topNHost), topNDataView("items", 2));
@@ -389,8 +453,18 @@ html = runUpdate(makeVisual(makeHost(true)), measureModeDataView());
 check("high contrast uses host foreground", html.includes('fill="#FFFFFF"'));
 
 console.log("=== render: waterfall mode (base PY) ===");
-html = runUpdate(makeVisual(host), withMode(dvMeasures as Record<string, unknown>, "waterfall"));
+const waterfallHost = makeHost() as { __selectedTargets: unknown[] };
+html = runUpdate(makeVisual(waterfallHost), withMode(measureModeDataView() as Record<string, unknown>, "waterfall"));
 check("waterfall columns", (html.match(/<rect/g) ?? []).length >= 7, `rects=${(html.match(/<rect/g) ?? []).length}`);
+const waterfallHits = Array.from((w.document as Document).querySelectorAll<SVGRectElement>(".ibcs-wf-hit"));
+check("every waterfall column has an interaction target", waterfallHits.length === 7, `hits=${waterfallHits.length}`);
+check(
+    "small waterfall steps have a 24px interaction target",
+    waterfallHits.slice(1, -1).every((hit) => Number(hit.getAttribute("height")) >= 24)
+);
+check("waterfall tooltip includes category name", html.includes("Category: 麻醉重症"));
+waterfallHits[2]?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+check("clicking an expanded waterfall target selects its category", waterfallHost.__selectedTargets.length === 1);
 
 console.log("=== landing page (no data) ===");
 html = runUpdate(makeVisual(host), null);

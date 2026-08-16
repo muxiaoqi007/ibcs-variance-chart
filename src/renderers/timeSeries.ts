@@ -26,7 +26,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     if (points.length === 0) {
         return;
     }
-    const showLabels = settings.labels.showValueLabels.value;
+    const showLabels = settings.labels?.showValueLabels?.value !== false;
     const legendH = fontSize + 10;
     const xLabelH = fontSize + 12;
     const topPad = showLabels ? fontSize + 6 : 6;

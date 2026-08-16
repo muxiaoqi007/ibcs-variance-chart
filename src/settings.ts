@@ -125,7 +125,17 @@ class NotationCard extends formattingSettings.SimpleCard {
         value: 0
     });
 
-    slices = [this.acColor, this.outlineColor, this.labelWidth];
+    rowHeight = new formattingSettings.NumUpDown({
+        name: "rowHeight",
+        displayNameKey: "Visual_Slice_RowHeight",
+        value: 0,
+        options: {
+            unitSymbol: "px",
+            unitSymbolAfterInput: true
+        }
+    });
+
+    slices = [this.acColor, this.outlineColor, this.labelWidth, this.rowHeight];
 }
 
 class SortCard extends formattingSettings.SimpleCard {

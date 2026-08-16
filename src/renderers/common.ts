@@ -27,6 +27,13 @@ export interface RenderContext {
     onInteraction: () => void;
 }
 
+/** Resolve the user-configured row height. Zero/missing means auto-fit. */
+export function configuredRowHeight(ctx: RenderContext): number {
+    const raw = Number(ctx.settings.notation?.rowHeight?.value);
+
+    return Number.isFinite(raw) && raw > 0 ? clamp(raw, 14, 60) : 0;
+}
+
 export function selectionOpacity(ctx: RenderContext, id: powerbi.visuals.ISelectionId): number {
     if (!ctx.allowInteractions) {
         return 1;

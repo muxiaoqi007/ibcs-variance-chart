@@ -80,12 +80,10 @@ export class Visual implements IVisual {
         try {
             this.lastViewport = { width, height };
             const dataView: DataView | undefined = options.dataViews?.[0];
-            if (dataView) {
-                this.formattingModel = this.formattingSettingsService.populateFormattingSettingsModel(
-                    VisualFormattingSettingsModel,
-                    dataView
-                );
-            }
+            // Always start from a complete model. Power BI can call update with
+            // an older metadata.objects payload after a visual upgrade; a bad
+            // persisted property must not prevent the data itself from rendering.
+            this.formattingModel = this.populateFormattingModel(dataView);
 
             const parsed = parseDataView(dataView, this.host);
             if (!parsed) {
@@ -100,16 +98,51 @@ export class Visual implements IVisual {
             this.lastRender();
             this.events.renderingFinished(options);
         } catch (error) {
-            this.renderError(width, height, (error as Error).message);
-            this.events.renderingFailed(options, (error as Error).message);
+            const message = this.errorMessage(error);
+            this.renderError(width, height, message);
+            this.events.renderingFailed(options, message);
         }
     }
 
     public getFormattingModel(): FormattingModel {
-        return this.formattingSettingsService.buildFormattingModel(this.formattingModel);
+        try {
+            return this.formattingSettingsService.buildFormattingModel(this.formattingModel);
+        } catch {
+            // Keep the visual-specific pane available even when Power BI asks
+            // for it before the first data update or after stale metadata was
+            // persisted by an older package.
+            this.formattingModel = new VisualFormattingSettingsModel();
+
+            return this.formattingSettingsService.buildFormattingModel(this.formattingModel);
+        }
     }
 
     // ------------------------------------------------------------------
+
+    private populateFormattingModel(dataView: DataView | undefined): VisualFormattingSettingsModel {
+        if (!dataView) {
+            return new VisualFormattingSettingsModel();
+        }
+        try {
+            return this.formattingSettingsService.populateFormattingSettingsModel(
+                VisualFormattingSettingsModel,
+                dataView
+            );
+        } catch {
+            return new VisualFormattingSettingsModel();
+        }
+    }
+
+    private errorMessage(error: unknown): string {
+        if (error instanceof Error && error.message) {
+            return error.message;
+        }
+        if (typeof error === "string" && error) {
+            return error;
+        }
+
+        return "Unknown rendering error";
+    }
 
     private redraw(): void {
         if (this.lastRender) {

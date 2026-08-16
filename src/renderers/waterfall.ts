@@ -8,6 +8,8 @@ import { ScenarioKind, scenarioStyle, applyBarStyle, varianceColor, ensureHatchP
 import { formatSigned, measureText, truncateText } from "../helpers";
 import { RenderContext, bindInteractions, selectionOpacity, TooltipItem } from "./common";
 
+const MIN_POINTER_TARGET = 24;
+
 export type WaterfallColumnType = "start" | "step" | "end";
 
 export interface WaterfallColumn {
@@ -39,7 +41,7 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
     }
     const colorMode = settings.variance.colorMode.value as "semantic" | "neutral";
     const goodDirection = settings.variance.goodDirection.value as "up" | "down";
-    const showLabels = settings.labels.showValueLabels.value;
+    const showLabels = settings.labels?.showValueLabels?.value !== false;
 
     // running levels
     let running = 0;
@@ -103,6 +105,7 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
 
         const rect = svg
             .append("rect")
+            .attr("class", "ibcs-wf-bar")
             .attr("x", xPos)
             .attr("y", top)
             .attr("width", bw)
@@ -111,7 +114,10 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
         applyBarStyle(rect as d3.Selection<SVGRectElement, unknown, null, undefined>, style);
 
         const items = (): TooltipItem[] => {
-            const list: TooltipItem[] = [];
+            const list: TooltipItem[] = [{
+                displayName: ctx.localization.getDisplayName("Visual_Tooltip_Category") || "Category",
+                value: col.label
+            }];
             if (col.type === "step") {
                 list.push({ displayName: `\u0394`, value: formatSigned(formatter, col.value) });
             } else {
@@ -120,7 +126,23 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
 
             return list.concat(col.tooltipExtra);
         };
-        bindInteractions(ctx, rect, () => col.selectionIds ?? col.selectionId, items);
+
+        // Preserve the truthful bar height while providing a usable pointer
+        // target for very small variances. Twenty-four pixels follows the
+        // minimum target size used by compact desktop controls.
+        const hitHeight = Math.min(plotH, Math.max(MIN_POINTER_TARGET, h));
+        const hitCenter = (top + bottom) / 2;
+        const hitY = Math.max(topPad, Math.min(hitCenter - hitHeight / 2, topPad + plotH - hitHeight));
+        const hitRect = svg
+            .append("rect")
+            .attr("class", "ibcs-wf-hit")
+            .attr("x", xPos)
+            .attr("y", hitY)
+            .attr("width", bw)
+            .attr("height", hitHeight)
+            .attr("fill", "transparent")
+            .attr("pointer-events", "all");
+        bindInteractions(ctx, hitRect, () => col.selectionIds ?? col.selectionId, items);
 
         if (showLabels) {
             const isNeg = col.type === "step" && col.value < 0;
@@ -130,6 +152,7 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
                 .attr("text-anchor", "middle")
                 .attr("font-size", fontSize - 1)
                 .attr("fill", col.type === "step" ? varianceColor(col.value, goodDirection, colorMode, colors) : colors.text)
+                .attr("pointer-events", "none")
                 .text(col.type === "step" ? formatSigned(formatter, col.value) : formatter(col.value));
         }
 
@@ -141,7 +164,8 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
                 .attr("y1", y(col.to ?? 0))
                 .attr("y2", y(col.to ?? 0))
                 .attr("stroke", colors.outline)
-                .attr("stroke-width", 0.75);
+                .attr("stroke-width", 0.75)
+                .attr("pointer-events", "none");
         }
     });
 
@@ -162,5 +186,6 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
         .attr("text-anchor", crowded ? "end" : "middle")
         .attr("font-size", fontSize - 1)
         .attr("fill", colors.text)
+        .attr("pointer-events", "none")
         .text((c) => (crowded ? truncateText(c.label, 90, fontSize - 1) : truncateText(c.label, bw + 14, fontSize - 1)));
 }

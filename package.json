@@ -1,6 +1,6 @@
 {
   "name": "ibcs-variance-chart",
-  "version": "1.7.1",
+  "version": "1.7.6",
   "description": "IBCS-style chart suite for Power BI: variance composite chart, semantic time series, waterfall and semantic table with AC/PY/PL/FC scenario notation (Zebra BI inspired)",
   "main": "src/visual.ts",
   "license": "MIT",

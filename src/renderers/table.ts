@@ -5,7 +5,7 @@ import * as d3 from "d3";
 import powerbi from "powerbi-visuals-api";
 import { ScenarioKind, varianceColor } from "../ibcs";
 import { formatSigned, formatSignedPercent, measureText, truncateText } from "../helpers";
-import { RenderContext, bindInteractions, selectionOpacity, TooltipItem, clamp, cycleSort, sortArrow, SortField } from "./common";
+import { RenderContext, bindInteractions, selectionOpacity, TooltipItem, clamp, configuredRowHeight, cycleSort, sortArrow, SortField } from "./common";
 
 export interface TableModel {
     rows: Array<{
@@ -37,7 +37,8 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
     const goodDirection = settings.variance.goodDirection.value as "up" | "down";
 
     const headerH = fontSize + 12;
-    const minRowH = fontSize + 6;
+    const configuredRowH = configuredRowHeight(ctx);
+    const minRowH = configuredRowH || fontSize + 6;
     const initialBodyH = Math.max(0, height - headerH);
     const needsOverflowNotice = allRows.length > Math.max(1, Math.floor(initialBodyH / minRowH));
     const overflowH = needsOverflowNotice ? fontSize + 7 : 0;
@@ -45,7 +46,7 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
     const visibleCount = Math.max(1, Math.floor(bodyH / minRowH));
     const rows = allRows.slice(0, visibleCount);
     const hiddenCount = allRows.length - rows.length;
-    const rowH = Math.min(30, Math.max(1, bodyH / rows.length));
+    const rowH = configuredRowH || Math.min(30, Math.max(1, bodyH / rows.length));
 
     const configuredLabelW = settings.notation.labelWidth.value;
     const maxLabelPx = d3.max(rows, (r) => measureText(r.label, fontSize)) ?? 0;
@@ -217,9 +218,12 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
             .text((d) => valueText(col.key, d) ?? "");
     }
 
-    // hit areas for tooltips and selection
+    // Hit areas must be behind the text. A transparent SVG fill still
+    // participates in painting/hit-testing and Power BI can composite it over
+    // the values, especially after a formatting-pane update.
     rowSel
-        .append("rect")
+        .insert("rect", ":first-child")
+        .attr("class", "ibcs-hit")
         .attr("x", 0)
         .attr("y", 0)
         .attr("width", width)

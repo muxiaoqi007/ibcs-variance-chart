@@ -36,6 +36,7 @@
   "Visual_Slice_ACColor": "实际值颜色",
   "Visual_Slice_OutlineColor": "轮廓颜色",
   "Visual_Slice_LabelWidth": "类别标签宽度",
+  "Visual_Slice_RowHeight": "行高（像素）",
   "Visual_Enum_Variance": "方差组合图",
   "Visual_Enum_TimeSeries": "时间序列",
   "Visual_Enum_Waterfall": "瀑布图",
@@ -83,5 +84,6 @@
   "Visual_Others": "其他",
   "Visual_Slice_ComparisonMode": "对比模式",
   "Visual_Enum_ComparisonSingle": "选定基准",
-  "Visual_Enum_ComparisonAll": "全部可用基准"
+  "Visual_Enum_ComparisonAll": "全部可用基准",
+  "Visual_Tooltip_Category": "类别"
 }

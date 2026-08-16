@@ -36,6 +36,7 @@
   "Visual_Slice_ACColor": "Actual color",
   "Visual_Slice_OutlineColor": "Outline color",
   "Visual_Slice_LabelWidth": "Category label width",
+  "Visual_Slice_RowHeight": "Row height (px)",
   "Visual_Enum_Variance": "Variance composite",
   "Visual_Enum_TimeSeries": "Time series",
   "Visual_Enum_Waterfall": "Waterfall",
@@ -83,5 +84,6 @@
   "Visual_Others": "Others",
   "Visual_Slice_ComparisonMode": "Comparison mode",
   "Visual_Enum_ComparisonSingle": "Selected base",
-  "Visual_Enum_ComparisonAll": "All available"
+  "Visual_Enum_ComparisonAll": "All available",
+  "Visual_Tooltip_Category": "Category"
 }

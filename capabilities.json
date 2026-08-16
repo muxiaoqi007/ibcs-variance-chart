@@ -250,6 +250,11 @@
           "displayName": "Category label width",
           "displayNameKey": "Visual_Slice_LabelWidth",
           "type": { "numeric": true }
+        },
+        "rowHeight": {
+          "displayName": "Row height",
+          "displayNameKey": "Visual_Slice_RowHeight",
+          "type": { "numeric": true }
         }
       }
     },

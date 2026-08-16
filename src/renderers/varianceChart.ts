@@ -11,7 +11,7 @@ import * as d3 from "d3";
 import powerbi from "powerbi-visuals-api";
 import { ScenarioKind, varianceColor, ensureHatchPattern } from "../ibcs";
 import { formatSigned, formatSignedPercent, measureText, truncateText } from "../helpers";
-import { RenderContext, bindInteractions, selectionOpacity, TooltipItem, clamp, cycleSort, sortArrow, SortField } from "./common";
+import { RenderContext, bindInteractions, selectionOpacity, TooltipItem, clamp, configuredRowHeight, cycleSort, sortArrow, SortField } from "./common";
 
 export interface VarianceRow {
     label: string;
@@ -40,11 +40,12 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
     let showPct = settings.variance.showDeltaPct.value && baseKind !== null;
     const colorMode = settings.variance.colorMode.value as "semantic" | "neutral";
     const goodDirection = settings.variance.goodDirection.value as "up" | "down";
-    const showLabels = settings.labels.showValueLabels.value;
+    const showLabels = settings.labels?.showValueLabels?.value !== false;
 
     const headerH = fontSize + 12;
     const bottomPad = 4;
-    const minRowH = Math.max(14, fontSize + 4);
+    const configuredRowH = configuredRowHeight(ctx);
+    const minRowH = configuredRowH || Math.max(14, fontSize + 4);
     const initialRowArea = Math.max(0, height - headerH - bottomPad);
     const needsOverflowNotice = allRows.length > Math.max(1, Math.floor(initialRowArea / minRowH));
     const overflowH = needsOverflowNotice ? fontSize + 7 : 0;
@@ -52,7 +53,9 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
     const visibleCount = Math.max(1, Math.floor(rowArea / minRowH));
     const rows = allRows.slice(0, visibleCount);
     const hiddenCount = allRows.length - rows.length;
-    const rowH = rows.length > 0 ? Math.min(44, Math.max(1, rowArea / rows.length)) : 0;
+    const rowH = rows.length > 0
+        ? (configuredRowH || Math.min(44, Math.max(1, rowArea / rows.length)))
+        : 0;
 
     // --- label column ---
     const configuredLabelW = settings.notation.labelWidth.value;
@@ -323,9 +326,11 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
         }
     }
 
-    // --- interaction overlay per row (invisible hit area) ---
+    // Keep the interaction surface behind bars and labels. SVG's
+    // "transparent" is painted, and host compositing must never be allowed
+    // to cover the visible content after a resize/format update.
     rowSel
-        .append("rect")
+        .insert("rect", ":first-child")
         .attr("class", "ibcs-hit")
         .attr("x", 0)
         .attr("y", 0)
