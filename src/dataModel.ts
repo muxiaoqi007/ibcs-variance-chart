@@ -23,6 +23,8 @@ export interface CategoryRow {
     firstRowIndex: number;
     /** Synthetic aggregate produced by Top N + Others. */
     isOthers?: boolean;
+    /** True when any source record of this row is highlighted by another visual. */
+    highlighted: boolean;
 }
 
 export interface TimeRow {
@@ -31,6 +33,8 @@ export interface TimeRow {
     selectionId: powerbi.visuals.ISelectionId;
     tooltipRaw: Array<number | null>;
     firstRowIndex: number;
+    /** True when any source record of this time point is highlighted. */
+    highlighted: boolean;
 }
 
 export type ScenarioSource = "dimension" | "measures";
@@ -48,6 +52,8 @@ export interface ParseOutput {
     valueFormat?: string;
     tooltipFields: TooltipField[];
     measureNames: Partial<Record<ScenarioKind, string>>;
+    /** True when Power BI delivered highlight values (cross-visual selection active). */
+    hasHighlight: boolean;
 }
 
 const CANON_ORDER: ScenarioKind[] = ["PY", "PL", "FC", "AC", "UNKNOWN"];
@@ -88,6 +94,32 @@ export function parseDataView(
         return null;
     }
 
+    // Cross-visual highlight: when another visual selects data, Power BI
+    // delivers `highlights` next to the values (null for dimmed rows).
+    const highlightsOf = (col: powerbi.DataViewValueColumn | undefined): Array<number | null> | null | undefined =>
+        col ? (col as powerbi.DataViewValueColumn & { highlights?: Array<number | null> }).highlights : undefined;
+    const valueHighlights = highlightsOf(valueCol);
+    const dedicatedHighlights = new Map(dedicated.map(({ kind, col }) => [kind, highlightsOf(col)]));
+    const highlightActive = hasDedicated
+        ? [...dedicatedHighlights.values()].some((h) => h != null)
+        : valueHighlights != null;
+    const rowHighlighted = (i: number): boolean => {
+        if (!highlightActive) {
+            return false;
+        }
+        if (hasDedicated) {
+            for (const h of dedicatedHighlights.values()) {
+                if (h?.[i] != null) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return valueHighlights?.[i] != null;
+    };
+
     const rowCount = (scenarioCol?.values.length
         ?? categoryCol?.values.length
         ?? timeCol?.values.length
@@ -104,6 +136,7 @@ export function parseDataView(
         kind: ScenarioKind;
         scenarioLabel: string | null;
         value: number;
+        highlighted: boolean;
         tooltipRaw: Array<number | null>;
         rowIndex: number;
     }
@@ -127,6 +160,7 @@ export function parseDataView(
                         kind,
                         scenarioLabel: null,
                         value: v,
+                        highlighted: rowHighlighted(i),
                         tooltipRaw: readTooltips(i),
                         rowIndex: i
                     });
@@ -146,6 +180,7 @@ export function parseDataView(
                 kind,
                 scenarioLabel: String(scenarioCol.values[i] ?? ""),
                 value: v,
+                highlighted: rowHighlighted(i),
                 tooltipRaw: readTooltips(i),
                 rowIndex: i
             });
@@ -176,6 +211,7 @@ export function parseDataView(
                 label,
                 values: {},
                 selectionId: candidateId,
+                highlighted: false,
                 tooltipRaw: leaf.tooltipRaw,
                 firstRowIndex: leaf.rowIndex
             };
@@ -183,6 +219,7 @@ export function parseDataView(
             rows.push(row);
         }
         row.values[leaf.kind] = (row.values[leaf.kind] ?? 0) + leaf.value;
+        row.highlighted = row.highlighted || leaf.highlighted;
     }
 
     // --- aggregate by time axis ---
@@ -203,6 +240,7 @@ export function parseDataView(
                     label: leaf.timeLabel,
                     values: {},
                     selectionId: candidateId,
+                    highlighted: false,
                     tooltipRaw: leaf.tooltipRaw,
                     firstRowIndex: leaf.rowIndex
                 };
@@ -210,6 +248,7 @@ export function parseDataView(
                 timeRows.push(row);
             }
             row.values[leaf.kind] = (row.values[leaf.kind] ?? 0) + leaf.value;
+            row.highlighted = row.highlighted || leaf.highlighted;
         }
     }
 
@@ -237,7 +276,8 @@ export function parseDataView(
         scenarioDisplay,
         valueFormat: valueCol?.source.format ?? dedicated[0]?.col.source.format,
         tooltipFields: tooltipCols.map((c) => ({ name: c.source.displayName, format: c.source.format })),
-        measureNames
+        measureNames,
+        hasHighlight: highlightActive
     };
 }
 

@@ -1,30 +1,28 @@
 // Smoke test: reproduces PBI dataViews and drives the Visual end-to-end in jsdom.
+// Shared mocks/builders live in test/harness.ts; pure-logic coverage lives in
+// test/unit.spec.ts (mocha).
 
-import { JSDOM, VirtualConsole } from "jsdom";
+import {
+    dom,
+    w,
+    makeHost,
+    measureModeDataView,
+    dimensionModeDataView,
+    timeSeriesDataView,
+    duplicateLabelDataView,
+    manyRowsDataView,
+    topNDataView,
+    withMode,
+    withTotals,
+    withHighlights,
+    makeVisual,
+    runUpdate
+} from "./harness";
+import { installGlobals } from "./harness";
 
-const virtualConsole = new VirtualConsole();
-virtualConsole.on("error", (...args: unknown[]) => console.error(...args));
-const dom = new JSDOM(`<!doctype html><html><body><div id="host"></div></body></html>`, {
-    pretendToBeVisual: true,
-    virtualConsole
-});
-const w = dom.window as unknown as Record<string, unknown>;
-function setGlobal(name: string, value: unknown): void {
-    Object.defineProperty(global, name, { value, writable: true, configurable: true });
-}
-setGlobal("window", dom.window);
-setGlobal("document", w.document);
-setGlobal("navigator", w.navigator);
-setGlobal("HTMLElement", w.HTMLElement);
-setGlobal("Element", w.Element);
-setGlobal("Node", w.Node);
-setGlobal("SVGElement", w.SVGElement);
-setGlobal("getComputedStyle", w.getComputedStyle);
-setGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => setTimeout(cb, 0));
-
-const { Visual } = require("../src/visual");
-const { parseDataView, resolveBaseScenario } = require("../src/dataModel");
-const { detectScenario } = require("../src/ibcs");
+installGlobals();
+import { parseDataView, resolveBaseScenario } from "../src/dataModel";
+import { detectScenario } from "../src/ibcs";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail?: string): void {
@@ -34,234 +32,20 @@ function check(name: string, cond: boolean, detail?: string): void {
     }
 }
 
-function makeHost(highContrast = false): unknown {
-    let counter = 0;
-    let identityKey: string | null = null;
-    const selectedTargets: unknown[] = [];
-    const builder: Record<string, unknown> = {};
-    builder.withCategory = (column: { identity?: Array<{ key?: string }> }, index: number) => {
-        const values = (column as { values?: unknown[] }).values;
-        identityKey = column.identity?.[index]?.key ?? String(values?.[index] ?? index);
-
-        return builder;
-    };
-    builder.withSeries = () => builder;
-    builder.withMeasure = () => builder;
-    builder.createSelectionId = () => {
-        const key = identityKey ?? String(++counter);
-        const hasIdentity = identityKey !== null;
-        identityKey = null;
-
-        return {
-            key,
-            equals: (o: { key: string }) => !!o && o.key === key,
-            getKey: () => key,
-            hasIdentity: () => hasIdentity
-        };
+// Hosts used by render assertions must turn rendering failures into test
+// failures; the harness default is silent.
+function newHost(highContrast = false): Record<string, unknown> {
+    const host = makeHost(highContrast);
+    (host.eventService as Record<string, unknown>).renderingFailed = (_o: unknown, message?: string) => {
+        console.log("RENDERING_FAILED_EVENT:", message);
+        failures++;
     };
 
-    return {
-        createSelectionManager: () => ({
-            select: async (target: unknown) => {
-                const targets = Array.isArray(target) ? target : [target];
-                if (targets.some((item) => !(item as { hasIdentity?: () => boolean })?.hasIdentity?.())) {
-                    throw new Error("Selection contained an empty identity");
-                }
-                selectedTargets.push(target);
-
-                return targets;
-            },
-            clear: async () => [],
-            hasSelection: () => false,
-            getSelectionIds: () => [],
-            showContextMenu: () => undefined,
-            registerOnSelectCallback: () => undefined
-        }),
-        createSelectionIdBuilder: () => builder,
-        createLocalizationManager: () => ({
-            getDisplayName: (k: string) => {
-                if (k === "Visual_MoreRows") {
-                    return "+{0} more items";
-                }
-                if (k === "Visual_Tooltip_Category") {
-                    return "Category";
-                }
-
-                return k;
-            },
-            getLocalization: () => "en-US"
-        }),
-        colorPalette: {
-            isHighContrast: highContrast,
-            foreground: { value: "#FFFFFF" },
-            background: { value: "#000000" },
-            getColor: () => ({ value: "#01B8AA" })
-        },
-        tooltipService: { enabled: () => true, show: () => undefined, hide: () => undefined },
-        eventService: {
-            renderingStarted: () => undefined,
-            renderingFinished: () => undefined,
-            renderingFailed: (_o: unknown, message?: string) => {
-                console.log("RENDERING_FAILED_EVENT:", message);
-                failures++;
-            }
-        },
-        hostCapabilities: { allowInteractions: true },
-        persistProperties: () => undefined,
-        applyJsonFilter: () => undefined,
-        __selectedTargets: selectedTargets
-    };
-}
-
-// Mirrors the user report: ATC4 category + ALL_CITY (AC) + ALL_CITY_LY (PY).
-function measureModeDataView(): unknown {
-    const catCol = {
-        identity: [],
-        source: { displayName: "ATC4", queryName: "ATC4", roles: { category: true }, type: { textual: true } },
-        values: ["麻醉重症", "降糖药", "肝病消化", "止吐", "神经病理"]
-    };
-    const acCol = {
-        source: { displayName: "ALL_CITY", queryName: "ac", roles: { ac: true }, format: "#,0.00" },
-        values: [36.4e9, 36.1e9, 28.9e9, 2.6e9, 1.7e9]
-    };
-    const pyCol = {
-        source: { displayName: "ALL_CITY_LY", queryName: "py", roles: { py: true }, format: "#,0.00" },
-        values: [33.5e9, 26.3e9, 24.2e9, 0.9e9, 1.29e9]
-    };
-
-    return {
-        metadata: { columns: [catCol.source, acCol.source, pyCol.source] },
-        categorical: { categories: [catCol], values: [acCol, pyCol] }
-    };
-}
-
-function dimensionModeDataView(): unknown {
-    const catVals: string[] = [];
-    const scenVals: string[] = [];
-    const vals: number[] = [];
-    const data: Record<string, Record<string, number>> = {
-        麻醉重症: { AC: 36.4e9, PY: 33.5e9, PL: 35e9 },
-        降糖药: { AC: 36.1e9, PY: 26.3e9, PL: 30e9 },
-        肝病消化: { AC: 28.9e9, PY: 24.2e9, PL: 27e9 }
-    };
-    for (const [cat, scens] of Object.entries(data)) {
-        for (const [scen, v] of Object.entries(scens)) {
-            catVals.push(cat);
-            scenVals.push(scen);
-            vals.push(v);
-        }
-    }
-    const catCol = { identity: [], source: { displayName: "ATC4", roles: { category: true } }, values: catVals };
-    const scenCol = { identity: [], source: { displayName: "Scenario", roles: { scenario: true } }, values: scenVals };
-    const valCol = { source: { displayName: "Sales", queryName: "value", roles: { value: true }, format: "#,0" }, values: vals };
-
-    return {
-        metadata: { columns: [catCol.source, scenCol.source, valCol.source] },
-        categorical: { categories: [catCol, scenCol], values: [valCol] }
-    };
-}
-
-function timeSeriesDataView(): unknown {
-    const timeVals: string[] = [];
-    const scenVals: string[] = [];
-    const vals: number[] = [];
-    const months = ["202601", "202602", "202603", "202604"];
-    months.forEach((m, i) => {
-        timeVals.push(m, m);
-        scenVals.push("AC", "PY");
-        vals.push(10e9 + i * 1e9, 8e9 + i * 0.8e9);
-    });
-    const timeCol = { identity: [], source: { displayName: "Month", roles: { timeAxis: true } }, values: timeVals };
-    const scenCol = { identity: [], source: { displayName: "Scenario", roles: { scenario: true } }, values: scenVals };
-    const valCol = { source: { displayName: "Sales", queryName: "value", roles: { value: true }, format: "#,0" }, values: vals };
-    const tooltipCol = {
-        source: { displayName: "Margin", queryName: "margin", roles: { tooltips: true }, format: "0.0%" },
-        values: months.flatMap((_m, i) => [0.2 + i * 0.01, 0.2 + i * 0.01])
-    };
-
-    return {
-        metadata: { columns: [timeCol.source, scenCol.source, valCol.source, tooltipCol.source] },
-        categorical: { categories: [timeCol, scenCol], values: [valCol, tooltipCol] }
-    };
-}
-
-function duplicateLabelDataView(): unknown {
-    const categoryCol = {
-        identity: [{ key: "north" }, { key: "north" }, { key: "south" }, { key: "south" }],
-        source: { displayName: "Branch", roles: { category: true } },
-        values: ["Central", "Central", "Central", "Central"]
-    };
-    const scenarioCol = {
-        source: { displayName: "Scenario", roles: { scenario: true } },
-        values: ["AC", "PY", "AC", "PY"]
-    };
-    const valueCol = {
-        source: { displayName: "Sales", roles: { value: true } },
-        values: [10, 8, 20, 15]
-    };
-
-    return {
-        metadata: { columns: [categoryCol.source, scenarioCol.source, valueCol.source] },
-        categorical: { categories: [categoryCol, scenarioCol], values: [valueCol] }
-    };
-}
-
-function manyRowsDataView(): unknown {
-    const count = 40;
-    const categoryCol = {
-        identity: [],
-        source: { displayName: "Category", roles: { category: true } },
-        values: Array.from({ length: count }, (_v, i) => `Item ${i + 1}`)
-    };
-    const acCol = {
-        source: { displayName: "AC", roles: { ac: true } },
-        values: Array.from({ length: count }, (_v, i) => 100 - i)
-    };
-    const pyCol = {
-        source: { displayName: "PY", roles: { py: true } },
-        values: Array.from({ length: count }, (_v, i) => 90 - i)
-    };
-
-    return {
-        metadata: { columns: [categoryCol.source, acCol.source, pyCol.source] },
-        categorical: { categories: [categoryCol], values: [acCol, pyCol] }
-    };
-}
-
-function topNDataView(mode: "items" | "percentage", limit: number): unknown {
-    const categoryCol = {
-        identity: [],
-        source: { displayName: "Category", roles: { category: true } },
-        values: ["Alpha", "Beta", "Gamma", "Delta"]
-    };
-    const acCol = {
-        source: { displayName: "AC", roles: { ac: true } },
-        values: [60, 30, 10, 5]
-    };
-    const pyCol = {
-        source: { displayName: "PY", roles: { py: true } },
-        values: [40, 20, 8, 4]
-    };
-
-    return {
-        metadata: {
-            columns: [categoryCol.source, acCol.source, pyCol.source],
-            objects: {
-                topN: {
-                    mode,
-                    count: limit,
-                    percentage: limit,
-                    rankBy: "ac",
-                    includeOthers: true
-                }
-            }
-        },
-        categorical: { categories: [categoryCol], values: [acCol, pyCol] }
-    };
+    return host;
 }
 
 function multiComparisonDataView(mode: "variance" | "table" | "waterfall"): unknown {
-    const dataView = dimensionModeDataView() as Record<string, unknown>;
+    const dataView = dimensionModeDataView();
     const metadata = dataView.metadata as Record<string, unknown>;
     metadata.objects = {
         chart: { mode },
@@ -269,35 +53,6 @@ function multiComparisonDataView(mode: "variance" | "table" | "waterfall"): unkn
     };
 
     return dataView;
-}
-
-function withMode(dv: Record<string, unknown>, mode: string): unknown {
-    const metadata = dv.metadata as Record<string, unknown>;
-    // Real Power BI dataViews carry evaluated literals in metadata.objects.
-    metadata.objects = { ...(metadata.objects as Record<string, unknown> ?? {}), chart: { mode } };
-
-    return dv;
-}
-
-function makeVisual(host: unknown): unknown {
-    const el = (w.document as Document).getElementById("host") as HTMLDivElement;
-    el.replaceChildren();
-
-    return new Visual({ element: el, host });
-}
-
-function runUpdate(visual: { update: (o: unknown) => void }, dv: unknown, width = 900, height = 420): string {
-    visual.update({
-        dataViews: dv ? [dv] : [],
-        viewport: { width, height },
-        type: 2,
-        viewMode: 0,
-        editMode: 0,
-        operationKind: 0
-    });
-    const el = (w.document as Document).getElementById("host") as HTMLDivElement;
-
-    return el.innerHTML;
 }
 
 console.log("=== scenario detection ===");
@@ -310,7 +65,7 @@ check("detect FC 2026 -> FC", detectScenario("FC 2026") === "FC");
 check("detect SPACE -> UNKNOWN (no false positive)", detectScenario("SPACE") === "UNKNOWN");
 
 console.log("=== parse: dedicated measures (user scenario) ===");
-const host = makeHost();
+const host = newHost();
 const dvMeasures = measureModeDataView();
 const parsedM = parseDataView(dvMeasures, host);
 check("parsed not null", !!parsedM);
@@ -331,7 +86,7 @@ check("ΔPY header present", html.includes("ΔPY"));
 check("labels present", (html.match(/<text/g) ?? []).length >= 5, `texts=${(html.match(/<text/g) ?? []).length}`);
 
 console.log("=== formatting model and runtime recovery ===");
-const formattingVisual = makeVisual(makeHost()) as {
+const formattingVisual = makeVisual(newHost()) as {
     update: (options: unknown) => void;
     getFormattingModel: () => { cards?: Array<{ uid?: string; groups?: Array<{ slices?: unknown[] }> }> };
     formattingSettingsService: {
@@ -340,7 +95,7 @@ const formattingVisual = makeVisual(makeHost()) as {
     };
 };
 const formattingModel = formattingVisual.getFormattingModel();
-check("custom formatting cards are registered", (formattingModel.cards?.length ?? 0) === 7);
+check("custom formatting cards are registered", (formattingModel.cards?.length ?? 0) === 8);
 check("notation formatting card is registered", formattingModel.cards?.some((card) => card.uid === "notation-card") === true);
 const originalPopulate = formattingVisual.formattingSettingsService.populateFormattingSettingsModel;
 formattingVisual.formattingSettingsService.populateFormattingSettingsModel = () => {
@@ -350,7 +105,7 @@ html = runUpdate(formattingVisual, measureModeDataView());
 check("stale formatting metadata cannot blank the visual", html.includes("ibcs-ac-bar"));
 formattingVisual.formattingSettingsService.populateFormattingSettingsModel = originalPopulate;
 
-const errorHost = makeHost() as Record<string, unknown>;
+const errorHost = newHost() as Record<string, unknown>;
 errorHost.eventService = {
     renderingStarted: () => undefined,
     renderingFinished: () => undefined,
@@ -426,7 +181,7 @@ const varianceRow = (w.document as Document).querySelector("g.ibcs-row");
 check("variance hit area stays behind content", varianceRow?.firstElementChild?.classList.contains("ibcs-hit") === true);
 
 console.log("=== Top N + Others ===");
-const topNHost = makeHost() as { __selectedTargets: unknown[] };
+const topNHost = newHost() as { __selectedTargets: unknown[] };
 html = runUpdate(makeVisual(topNHost), topNDataView("items", 2));
 check("item Top N keeps requested items plus Others", (html.match(/ibcs-row/g) ?? []).length === 3);
 check("item Top N includes Others", html.includes("Visual_Others"));
@@ -449,11 +204,136 @@ html = runUpdate(makeVisual(host), multiComparisonDataView("waterfall"), 900, 66
 check("waterfall renders multiple comparison panels", html.includes("ibcs-comparison-PY") && html.includes("ibcs-comparison-PL"));
 
 console.log("=== high contrast ===");
-html = runUpdate(makeVisual(makeHost(true)), measureModeDataView());
+html = runUpdate(makeVisual(newHost(true)), measureModeDataView());
 check("high contrast uses host foreground", html.includes('fill="#FFFFFF"'));
 
+console.log("=== cross-visual highlight ===");
+const caps = require("../capabilities.json");
+check("supportsHighlight declared in capabilities", caps.supportsHighlight === true);
+const highlightDv = measureModeDataView() as {
+    categorical: { values: Array<Record<string, unknown>> };
+};
+highlightDv.categorical.values.forEach((col) => {
+    col.highlights = (col.values as number[]).map((v, i) => (i === 0 ? v : null));
+});
+const parsedHl = parseDataView(highlightDv, host);
+check("highlight data parsed", parsedHl?.hasHighlight === true);
+check("highlighted row detected", parsedHl?.rows[0]?.highlighted === true);
+check("non-highlighted rows detected", parsedHl?.rows.slice(1).every((r) => r.highlighted === false) === true);
+html = runUpdate(makeVisual(host), highlightDv);
+check("highlight dims non-selected rows", html.includes('opacity="0.35"'));
+html = runUpdate(makeVisual(host), measureModeDataView());
+check("no dimming without highlight values", !html.includes('opacity="0.35"'));
+
+console.log("=== keyed data joins reuse DOM across updates ===");
+const reuseVisual = makeVisual(host) as { update: (o: unknown) => void };
+runUpdate(reuseVisual, measureModeDataView());
+const firstRowBefore = (w.document as Document).querySelector("g.ibcs-row");
+const rowSeparatorBefore = (w.document as Document).querySelector("g.ibcs-row line.ibcs-sep");
+runUpdate(reuseVisual, measureModeDataView());
+check("row DOM nodes are reused across updates", firstRowBefore === (w.document as Document).querySelector("g.ibcs-row"));
+check("row separators are not duplicated", (w.document as Document).querySelectorAll("g.ibcs-row > line.ibcs-sep").length === 4);
+const shrunkDv = measureModeDataView() as {
+    categorical: { categories: Array<Record<string, unknown>>; values: Array<Record<string, unknown>> };
+};
+shrunkDv.categorical.categories[0].values = ["麻醉重症", "降糖药"];
+shrunkDv.categorical.values.forEach((col) => {
+    col.values = (col.values as number[]).slice(0, 2);
+});
+runUpdate(reuseVisual, shrunkDv);
+check("shrunk data removes stale rows", (w.document as Document).querySelectorAll("g.ibcs-row").length === 2);
+
+console.log("=== render: vertical variance mode ===");
+html = runUpdate(makeVisual(host), withMode(measureModeDataView() as Record<string, unknown>, "vertical"));
+check("vertical AC columns rendered", (html.match(/ibcs-vac-bar/g) ?? []).length === 5);
+check("vertical base outlines rendered", (html.match(/ibcs-vbase-bar/g) ?? []).length === 5);
+check("vertical delta bars rendered", (html.match(/ibcs-vdelta-bar/g) ?? []).length === 5);
+check("vertical ΔPY header present", html.includes("ΔPY"));
+check("vertical pct lollipops rendered", (html.match(/ibcs-vpct-dot/g) ?? []).length === 5);
+check("vertical category labels rendered", html.includes("麻醉重症"));
+const verticalHit = (w.document as Document).querySelector("g.ibcs-vcol rect.ibcs-hit");
+check("vertical columns expose interaction targets", verticalHit?.getAttribute("tabindex") === "0");
+const verticalHost = newHost() as { __selectedTargets: unknown[] };
+html = runUpdate(makeVisual(verticalHost), withMode(measureModeDataView() as Record<string, unknown>, "vertical"));
+(w.document as Document).querySelector("g.ibcs-vcol rect.ibcs-hit")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+check("clicking a vertical column selects its category", verticalHost.__selectedTargets.length === 1);
+html = runUpdate(makeVisual(host), withMode(measureModeDataView() as Record<string, unknown>, "vertical"), 200, 240);
+check("narrow vertical chart drops the percent panel", !html.includes(">ΔPY%<") && html.includes(">ΔPY<"));
+html = runUpdate(makeVisual(host), withMode(manyRowsDataView() as Record<string, unknown>, "vertical"), 900, 420);
+check("vertical overflow note appears", html.includes("ibcs-overflow-note") && (html.match(/ibcs-vcol/g) ?? []).length < 40);
+
+console.log("=== totals row ===");
+html = runUpdate(makeVisual(host), withTotals(measureModeDataView() as Record<string, unknown>, "table"));
+check("table totals row rendered", html.includes("ibcs-ttotal") && html.includes("Visual_Total"));
+check("table totals AC sums all rows", html.includes("105.70bn"), html.slice(html.indexOf("ibcs-ttotal"), html.indexOf("ibcs-ttotal") + 600));
+check("table totals delta derived from sums", html.includes("+19.51bn"));
+check("table totals pct derived from sums", html.includes("+22.6%"));
+const totalsHit = (w.document as Document).querySelector("g.ibcs-ttotal rect.ibcs-hit");
+check("table totals row is not selectable", totalsHit?.getAttribute("tabindex") === null);
+html = runUpdate(makeVisual(host), withTotals(measureModeDataView() as Record<string, unknown>, "variance"));
+check("variance totals row rendered", html.includes("ibcs-total") && html.includes("Visual_Total"));
+check("variance totals AC bar and value rendered", html.includes("ibcs-total-ac-bar") && html.includes("105.70bn"));
+html = runUpdate(makeVisual(host), measureModeDataView());
+check("totals row hidden by default", !html.includes("ibcs-ttotal") && !html.includes("ibcs-total"));
+html = runUpdate(makeVisual(host), withTotals(dimensionModeDataView() as Record<string, unknown>, "table"));
+check("totals works with dimension mode", html.includes("ibcs-ttotal") && /101(\.4)?0?bn/.test(html), html.slice(html.indexOf("ibcs-tcell-ac"), html.indexOf("ibcs-tcell-ac") + 120));
+
+console.log("=== gridlines and row fill ===");
+html = runUpdate(makeVisual(host), measureModeDataView());
+check("row separators shown by default", html.includes("ibcs-sep"));
+check("fill mode stretches rows across the plot", (() => {
+    const rowsEls = Array.from((w.document as Document).querySelectorAll<SVGGElement>("g.ibcs-row"));
+    return rowsEls.length === 5 && Number(rowsEls[1].getAttribute("transform")?.match(/translate\(0, ([0-9.]+)\)/)?.[1]) > 60;
+})());
+const noGridDv = measureModeDataView();
+(noGridDv.metadata as Record<string, unknown>).objects = { gridlines: { show: false } };
+html = runUpdate(makeVisual(host), noGridDv);
+check("gridlines can be hidden", !html.includes("ibcs-sep"));
+const gridColorDv = measureModeDataView();
+(gridColorDv.metadata as Record<string, unknown>).objects = { gridlines: { color: { solid: { color: "#FF0000" } } } };
+html = runUpdate(makeVisual(host), gridColorDv);
+check("gridline color is applied", html.includes('stroke="#FF0000"'), html.slice(html.indexOf("ibcs-sep") - 60, html.indexOf("ibcs-sep") + 60));
+html = runUpdate(makeVisual(host), withMode(measureModeDataView() as Record<string, unknown>, "table"));
+check("table fill mode stretches rows", (() => {
+    const rowsEls = Array.from((w.document as Document).querySelectorAll<SVGGElement>("g.ibcs-trow"));
+    return rowsEls.length === 5 && Number(rowsEls[1].getAttribute("transform")?.match(/translate\(0, ([0-9.]+)\)/)?.[1]) > 44;
+})());
+
+console.log("=== outlier scaling ===");
+function outlierDataView(): Record<string, unknown> {
+    const catCol = {
+        identity: [],
+        source: { displayName: "ATC4", roles: { category: true } },
+        values: ["麻醉重症", "降糖药", "肝病消化", "止吐"]
+    };
+    const acCol = {
+        source: { displayName: "AC", roles: { ac: true }, format: "#,0" },
+        values: [100e9, 30e9, 25e9, 20e9]
+    };
+    const pyCol = {
+        source: { displayName: "PY", roles: { py: true }, format: "#,0" },
+        values: [80e9, 20e9, 25e9, 10e9]
+    };
+
+    return {
+        metadata: { columns: [catCol.source, acCol.source, pyCol.source] },
+        categorical: { categories: [catCol], values: [acCol, pyCol] }
+    };
+}
+html = runUpdate(makeVisual(host), outlierDataView());
+check("outlier row gets break marks", html.includes("ibcs-break"), html.slice(0, 200));
+const acTexts = (html.match(/ibcs-ac-value[^>]*>([^<]*)</g) ?? []).map((s) => s.replace(/^.*>/, "").replace(/<$/, ""));
+check("outlier row keeps its true value label", acTexts.some((t) => /^0\.1T$|^100/.test(t)), acTexts.join(" / "));
+const outlierBarWidths = Array.from((w.document as Document).querySelectorAll<SVGRectElement>("g.ibcs-row rect.ibcs-ac-bar")).map((b) => Number(b.getAttribute("width")));
+check("outlier scaling magnifies the normal rows", outlierBarWidths.length === 4 && outlierBarWidths[1] > outlierBarWidths[0] * 0.8, outlierBarWidths.join(","));
+const outlierOffDv = outlierDataView();
+(outlierOffDv.metadata as Record<string, unknown>).objects = { notation: { outlierScale: "off" } };
+html = runUpdate(makeVisual(host), outlierOffDv);
+check("outlier scaling can be disabled", !html.includes("ibcs-break"));
+const normalBarWidths = Array.from((w.document as Document).querySelectorAll<SVGRectElement>("g.ibcs-row rect.ibcs-ac-bar")).map((b) => Number(b.getAttribute("width")));
+check("disabled mode uses the true scale again", normalBarWidths.length === 4 && normalBarWidths[1] < normalBarWidths[0] / 2, normalBarWidths.join(","));
 console.log("=== render: waterfall mode (base PY) ===");
-const waterfallHost = makeHost() as { __selectedTargets: unknown[] };
+const waterfallHost = newHost() as { __selectedTargets: unknown[] };
 html = runUpdate(makeVisual(waterfallHost), withMode(measureModeDataView() as Record<string, unknown>, "waterfall"));
 check("waterfall columns", (html.match(/<rect/g) ?? []).length >= 7, `rects=${(html.match(/<rect/g) ?? []).length}`);
 const waterfallHits = Array.from((w.document as Document).querySelectorAll<SVGRectElement>(".ibcs-wf-hit"));

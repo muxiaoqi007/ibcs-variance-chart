@@ -13,7 +13,13 @@ class ChartCard extends formattingSettings.SimpleCard {
         value: "variance"
     });
 
-    slices = [this.mode];
+    showTotals = new formattingSettings.ToggleSwitch({
+        name: "showTotals",
+        displayNameKey: "Visual_Slice_ShowTotals",
+        value: false
+    });
+
+    slices = [this.mode, this.showTotals];
 }
 
 class ScenariosCard extends formattingSettings.SimpleCard {
@@ -135,7 +141,32 @@ class NotationCard extends formattingSettings.SimpleCard {
         }
     });
 
-    slices = [this.acColor, this.outlineColor, this.labelWidth, this.rowHeight];
+    outlierScale = new formattingSettings.AutoDropdown({
+        name: "outlierScale",
+        displayNameKey: "Visual_Slice_OutlierScale",
+        value: "auto"
+    });
+
+    slices = [this.acColor, this.outlineColor, this.labelWidth, this.rowHeight, this.outlierScale];
+}
+
+class GridlinesCard extends formattingSettings.SimpleCard {
+    name = "gridlines";
+    displayNameKey = "Visual_Object_Gridlines";
+
+    show = new formattingSettings.ToggleSwitch({
+        name: "show",
+        displayNameKey: "Visual_Slice_ShowGridlines",
+        value: true
+    });
+
+    color = new formattingSettings.ColorPicker({
+        name: "color",
+        displayNameKey: "Visual_Slice_GridlineColor",
+        value: { value: "#D8D8D8" }
+    });
+
+    slices = [this.show, this.color];
 }
 
 class SortCard extends formattingSettings.SimpleCard {
@@ -200,8 +231,9 @@ export class VisualFormattingSettingsModel extends formattingSettings.Model {
     variance = new VarianceCard();
     labels = new LabelsCard();
     notation = new NotationCard();
+    gridlines = new GridlinesCard();
     sortSettings = new SortCard();
     topN = new TopNCard();
 
-    cards = [this.chart, this.scenarios, this.variance, this.labels, this.notation, this.sortSettings, this.topN];
+    cards = [this.chart, this.scenarios, this.variance, this.labels, this.notation, this.gridlines, this.sortSettings, this.topN];
 }

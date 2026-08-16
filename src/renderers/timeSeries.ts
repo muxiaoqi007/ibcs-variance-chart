@@ -5,13 +5,15 @@ import * as d3 from "d3";
 import powerbi from "powerbi-visuals-api";
 import { ScenarioKind, SCENARIO_ORDER, scenarioStyle, applyBarStyle, ensureHatchPattern } from "../ibcs";
 import { measureText } from "../helpers";
-import { RenderContext, bindInteractions, selectionOpacity, TooltipItem } from "./common";
+import { RenderContext, bindInteractions, dataPointOpacity, TooltipItem } from "./common";
 
 export interface TimeSeriesModel {
     points: Array<{
         label: string;
         selectionId: powerbi.visuals.ISelectionId;
         values: Partial<Record<ScenarioKind, number>>;
+        /** Cross-visual highlight state for this time point. */
+        highlighted: boolean;
         tooltipExtra: TooltipItem[];
     }>;
     present: ScenarioKind[];
@@ -21,6 +23,14 @@ export interface TimeSeriesModel {
 export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): void {
     const { svg, width, height, colors, settings, formatter, fontSize } = ctx;
     ensureHatchPattern(svg, colors.outline);
+
+    // Persistent container: rebuilt per update but keeps the svg (defs,
+    // sibling structure) intact so cross-updates stay cheap.
+    let chart = svg.select<SVGGElement>("g.ibcs-ts-chart");
+    if (chart.empty()) {
+        chart = svg.append("g").attr("class", "ibcs-ts-chart");
+    }
+    chart.selectAll("*").remove();
 
     const points = model.points;
     if (points.length === 0) {
@@ -45,7 +55,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     const zeroY = y(Math.max(0, minVal));
 
     // baseline
-    svg.append("line")
+    chart.append("line")
         .attr("x1", 4)
         .attr("x2", 4 + plotW)
         .attr("y1", zeroY)
@@ -75,7 +85,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
         const isAc = kind === "AC";
         const barW = isAc ? bw * 0.62 : bw * 0.92;
 
-        const bars = svg
+        const bars = chart
             .append("g")
             .attr("class", `ibcs-series-${kind}`)
             .selectAll("rect")
@@ -90,14 +100,14 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
             })
             .attr("width", barW)
             .attr("height", (p) => Math.max(1, Math.abs(y(p.values[kind] as number) - zeroY)))
-            .attr("opacity", (p) => selectionOpacity(ctx, p.selectionId));
+            .attr("opacity", (p) => dataPointOpacity(ctx, p.selectionId, p.highlighted));
         applyBarStyle(bars as d3.Selection<SVGRectElement, unknown, null, undefined>, style);
         bars.each(function (p) {
             bindInteractions(ctx, d3.select(this), () => p.selectionId, () => tooltipFor(p));
         });
 
         if (showLabels && isAc) {
-            svg.append("g")
+            chart.append("g")
                 .selectAll("text")
                 .data(points.filter((p) => p.values.AC !== undefined))
                 .enter()
@@ -107,6 +117,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
                 .attr("text-anchor", "middle")
                 .attr("font-size", fontSize - 1)
                 .attr("fill", colors.text)
+                .attr("opacity", (p) => dataPointOpacity(ctx, p.selectionId, p.highlighted))
                 .text((p) => formatter(p.values.AC as number));
         }
     }
@@ -114,7 +125,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     // --- x axis labels (skip crowded) ---
     const maxLabelW = d3.max(points, (p) => measureText(p.label, fontSize - 1)) ?? 0;
     const step = Math.max(1, Math.ceil(maxLabelW / (bw + bw * 0.28)));
-    svg.append("g")
+    chart.append("g")
         .selectAll("text")
         .data(points.filter((_p, i) => i % step === 0))
         .enter()
@@ -131,7 +142,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     let cursor = 4;
     for (const kind of overlayOrder) {
         const style = scenarioStyle(kind, colors);
-        const g = svg.append("g").attr("transform", `translate(${cursor}, ${legendY})`);
+        const g = chart.append("g").attr("transform", `translate(${cursor}, ${legendY})`);
         const glyph = g.append("rect").attr("x", 0).attr("y", -5).attr("width", 10).attr("height", 10);
         applyBarStyle(glyph as d3.Selection<SVGRectElement, unknown, null, undefined>, style);
         const text = kind === "AC" ? "AC" : scenarioLabel(kind);

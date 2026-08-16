@@ -23,6 +23,7 @@ import { parseDataView, ParseOutput, resolveBaseScenario } from "./dataModel";
 import { createFormatter, Formatter, isNumeric } from "./helpers";
 import { RenderContext, ChartMode, TooltipItem, clamp } from "./renderers/common";
 import { renderVarianceChart, VarianceModel } from "./renderers/varianceChart";
+import { renderVerticalVarianceChart } from "./renderers/verticalChart";
 import { renderTimeSeries, TimeSeriesModel } from "./renderers/timeSeries";
 import { renderWaterfall, WaterfallModel, WaterfallColumn } from "./renderers/waterfall";
 import { renderTable, TableModel } from "./renderers/table";
@@ -41,9 +42,13 @@ export class Visual implements IVisual {
 
     private root: d3.Selection<HTMLDivElement, unknown, null, undefined>;
     private svg: d3.Selection<SVGSVGElement, unknown, null, undefined>;
+    /** Animate geometry changes on data updates (never on resize). */
+    private animate = false;
 
     private lastViewport: { width: number; height: number } | null = null;
     private lastRender: (() => void) | null = null;
+    /** Identifies the current scene; the SVG is cleared only when it changes. */
+    private sceneKey: string | null = null;
 
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
@@ -84,6 +89,12 @@ export class Visual implements IVisual {
             // an older metadata.objects payload after a visual upgrade; a bad
             // persisted property must not prevent the data itself from rendering.
             this.formattingModel = this.populateFormattingModel(dataView);
+
+            // Animate only data-driven updates: resize and other layout-only
+            // updates must land at their final geometry synchronously.
+            // VisualUpdateType.Data is bit 1 of the update-type bitmask.
+            const updateType = Number(options.type ?? 0);
+            this.animate = (updateType & 1) !== 0;
 
             const parsed = parseDataView(dataView, this.host);
             if (!parsed) {
@@ -177,12 +188,26 @@ export class Visual implements IVisual {
             ac: this.getColor(this.formattingModel.notation.acColor.value, DEFAULT_COLORS.ac),
             outline: this.getColor(this.formattingModel.notation.outlineColor.value, DEFAULT_COLORS.outline),
             positive: this.getColor(this.formattingModel.variance.positiveColor.value, DEFAULT_COLORS.positive),
-            negative: this.getColor(this.formattingModel.variance.negativeColor.value, DEFAULT_COLORS.negative)
+            negative: this.getColor(this.formattingModel.variance.negativeColor.value, DEFAULT_COLORS.negative),
+            grid: this.getColor(this.formattingModel.gridlines.color.value, DEFAULT_COLORS.grid)
         };
     }
 
     private renderParsed(parsed: ParseOutput, width: number, height: number): void {
-        this.svg.selectAll("*").remove();
+        const settings = this.formattingModel;
+        const mode = (settings.chart.mode.value as ChartMode) || "variance";
+        const baseKind = resolveBaseScenario(String(settings.scenarios.baseScenario.value), parsed.present);
+        const comparisonKinds = String(settings.scenarios.comparisonMode.value ?? "single") === "all"
+            ? (["PY", "PL", "FC"] as ScenarioKind[]).filter((kind) => parsed.present.includes(kind))
+            : (baseKind ? [baseKind] : []);
+
+        // Renderers reuse their DOM across updates via keyed joins; the tree
+        // is only torn down when the scene (mode / panel layout) changes.
+        const sceneKey = [mode, comparisonKinds.join("+"), parsed.rows.length > 0 || (parsed.timeRows?.length ?? 0) > 0 ? "data" : "empty"].join("|");
+        if (this.sceneKey !== sceneKey) {
+            this.svg.selectAll("*").remove();
+            this.sceneKey = sceneKey;
+        }
         this.svg
             .attr("width", width)
             .attr("height", height)
@@ -195,15 +220,9 @@ export class Visual implements IVisual {
             return;
         }
 
-        const settings = this.formattingModel;
         const colors = this.resolveColors();
         const fontSize = clamp(settings.labels.fontSize.value || 11, 8, 24);
-        const mode = (settings.chart.mode.value as ChartMode) || "variance";
-        const baseKind = resolveBaseScenario(String(settings.scenarios.baseScenario.value), parsed.present);
         const baseLabel = (baseKind && parsed.scenarioDisplay[baseKind]) || baseKind || "";
-        const comparisonKinds = String(settings.scenarios.comparisonMode.value ?? "single") === "all"
-            ? (["PY", "PL", "FC"] as ScenarioKind[]).filter((kind) => parsed.present.includes(kind))
-            : (baseKind ? [baseKind] : []);
 
         const topNRows = mode === "timeseries"
             ? parsed.rows
@@ -264,7 +283,9 @@ export class Visual implements IVisual {
             allowInteractions: this.allowInteractions,
             tooltip: this.tooltipService,
             localization: this.localizationManager,
-            onInteraction: () => this.redraw()
+            onInteraction: () => this.redraw(),
+            animate: this.animate,
+            highlightActive: parsed.hasHighlight
         };
 
         if (mode !== "timeseries" && comparisonKinds.length > 1) {
@@ -276,6 +297,9 @@ export class Visual implements IVisual {
         switch (mode) {
             case "timeseries":
                 this.renderTimeSeriesMode(ctx, parsed, baseKind, baseLabel, buildTooltipExtra);
+                break;
+            case "vertical":
+                this.renderVarianceMode(ctx, rowsParsed, baseKind, baseLabel, buildTooltipExtra, true);
                 break;
             case "waterfall":
                 this.renderWaterfallMode(ctx, rowsParsed, baseKind, baseLabel, buildTooltipExtra);
@@ -391,6 +415,7 @@ export class Visual implements IVisual {
             values,
             selectionId: hidden[0].selectionId,
             selectionIds: hidden.map((row) => row.selectionId),
+            highlighted: hidden.some((row) => row.highlighted),
             tooltipRaw,
             firstRowIndex: -1,
             isOthers: true
@@ -410,17 +435,40 @@ export class Visual implements IVisual {
         const panelHeight = Math.max(1, (ctx.height - gap * (baseKinds.length - 1)) / baseKinds.length);
         // Keep the same category set in every panel so comparisons remain aligned.
         const sharedRows = this.applyTopN(parsed.rows, baseKinds[0]);
-        baseKinds.forEach((baseKind, index) => {
-            const y = index * (panelHeight + gap);
-            const panelSvg = ctx.svg
-                .append<SVGSVGElement>("svg")
-                .attr("class", `ibcs-comparison-panel ibcs-comparison-${baseKind}`)
-                .attr("x", 0)
-                .attr("y", y)
-                .attr("width", ctx.width)
-                .attr("height", panelHeight)
-                .attr("overflow", "hidden")
-                .attr("aria-label", baseKind);
+        // Panels are keyed by base scenario so their subtrees are reused.
+        const panels = ctx.svg
+            .selectAll<SVGSVGElement, ScenarioKind>("svg.ibcs-comparison-panel")
+            .data(baseKinds, (kind) => kind)
+            .join((enter) => {
+                const svg = enter.append("svg")
+                    .attr("class", (kind) => `ibcs-comparison-panel ibcs-comparison-${kind}`)
+                    .attr("overflow", "hidden")
+                    .attr("aria-label", (kind) => kind);
+
+                return svg;
+            })
+            .attr("x", 0)
+            .attr("y", (_kind, index) => index * (panelHeight + gap))
+            .attr("width", ctx.width)
+            .attr("height", panelHeight);
+        const showGridlines = String(ctx.settings.gridlines?.show?.value) !== "false";
+        const separators = ctx.svg
+            .selectAll<SVGLineElement, number>("line.ibcs-panel-sep")
+            .data(showGridlines ? d3.range(baseKinds.length - 1) : []);
+        separators
+            .enter()
+            .append("line")
+            .attr("class", "ibcs-panel-sep")
+            .merge(separators)
+            .attr("x1", 0)
+            .attr("x2", ctx.width)
+            .attr("y1", (i) => (i + 1) * panelHeight + i * gap + gap / 2)
+            .attr("y2", (i) => (i + 1) * panelHeight + i * gap + gap / 2)
+            .attr("stroke", ctx.colors.grid)
+            .attr("stroke-width", 1);
+        separators.exit().remove();
+        panels.each((baseKind, index, nodes) => {
+            const panelSvg = d3.select(nodes[index]);
             const panelCtx: RenderContext = { ...ctx, svg: panelSvg, height: panelHeight };
             const rows = this.sortRows(
                 sharedRows,
@@ -431,22 +479,12 @@ export class Visual implements IVisual {
             const panelParsed: ParseOutput = { ...parsed, rows };
             const baseLabel = parsed.scenarioDisplay[baseKind] || baseKind;
 
-            if (mode === "variance") {
-                this.renderVarianceMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra);
+            if (mode === "variance" || mode === "vertical") {
+                this.renderVarianceMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra, mode === "vertical");
             } else if (mode === "table") {
                 this.renderTableMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra);
             } else {
                 this.renderWaterfallMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra);
-            }
-
-            if (index < baseKinds.length - 1) {
-                ctx.svg.append("line")
-                    .attr("x1", 0)
-                    .attr("x2", ctx.width)
-                    .attr("y1", y + panelHeight + gap / 2)
-                    .attr("y2", y + panelHeight + gap / 2)
-                    .attr("stroke", ctx.colors.grid)
-                    .attr("stroke-width", 1);
             }
         });
     }
@@ -456,7 +494,8 @@ export class Visual implements IVisual {
         parsed: ParseOutput,
         baseKind: ScenarioKind | null,
         baseLabel: string,
-        buildTooltipExtra: (raw: Array<number | null>) => TooltipItem[]
+        buildTooltipExtra: (raw: Array<number | null>) => TooltipItem[],
+        vertical = false
     ): void {
         const model: VarianceModel = {
             baseKind,
@@ -475,11 +514,16 @@ export class Visual implements IVisual {
                     base,
                     delta,
                     deltaPct,
+                    highlighted: r.highlighted,
                     tooltipExtra: buildTooltipExtra(r.tooltipRaw)
                 };
             })
         };
-        renderVarianceChart(ctx, model);
+        if (vertical) {
+            renderVerticalVarianceChart(ctx, model);
+        } else {
+            renderVarianceChart(ctx, model);
+        }
     }
 
     private renderTimeSeriesMode(
@@ -497,6 +541,7 @@ export class Visual implements IVisual {
                 label: r.label,
                 selectionId: r.selectionId,
                 values: r.values,
+                highlighted: r.highlighted,
                 tooltipExtra: buildTooltipExtra(r.tooltipRaw)
             }))
         };
@@ -532,12 +577,14 @@ export class Visual implements IVisual {
                     value: ac - base,
                     selectionId: r.selectionId,
                     selectionIds: r.selectionIds,
+                    highlighted: r.highlighted,
                     tooltipExtra: buildTooltipExtra(r.tooltipRaw)
                 });
             }
-            columns.push({ type: "start", label: baseKind, value: baseTotal, selectionId: emptyId(), tooltipExtra: [] });
+            const totalsHighlighted = steps.some((step) => step.highlighted);
+            columns.push({ type: "start", label: baseKind, value: baseTotal, selectionId: emptyId(), highlighted: totalsHighlighted, tooltipExtra: [] });
             columns.push(...steps);
-            columns.push({ type: "end", label: "AC", value: acTotal, selectionId: emptyId(), tooltipExtra: [] });
+            columns.push({ type: "end", label: "AC", value: acTotal, selectionId: emptyId(), highlighted: totalsHighlighted, tooltipExtra: [] });
         } else {
             let total = 0;
             for (const r of parsed.rows) {
@@ -552,10 +599,11 @@ export class Visual implements IVisual {
                     value: ac,
                     selectionId: r.selectionId,
                     selectionIds: r.selectionIds,
+                    highlighted: r.highlighted,
                     tooltipExtra: buildTooltipExtra(r.tooltipRaw)
                 });
             }
-            columns.push({ type: "end", label: totalLabel, value: total, selectionId: emptyId(), tooltipExtra: [] });
+            columns.push({ type: "end", label: totalLabel, value: total, selectionId: emptyId(), highlighted: false, tooltipExtra: [] });
         }
 
         const model: WaterfallModel = { columns, baseKind, totalLabel };
@@ -586,6 +634,7 @@ export class Visual implements IVisual {
                     base,
                     delta,
                     deltaPct,
+                    highlighted: r.highlighted,
                     tooltipExtra: buildTooltipExtra(r.tooltipRaw)
                 };
             })
@@ -595,6 +644,7 @@ export class Visual implements IVisual {
 
     private renderNoRows(width: number, height: number): void {
         this.svg.selectAll("*").remove();
+        this.sceneKey = null;
         this.svg.attr("width", width).attr("height", height);
         const g = this.svg.append("g");
         g.append("text")
@@ -613,6 +663,7 @@ export class Visual implements IVisual {
 
     private renderError(width: number, height: number, message: string): void {
         this.svg.selectAll("*").remove();
+        this.sceneKey = null;
         this.svg.attr("width", width).attr("height", height);
         const g = this.svg.append("g");
         g.append("text")
@@ -632,6 +683,7 @@ export class Visual implements IVisual {
 
     private renderLandingPage(width: number, height: number): void {
         this.svg.selectAll("*").remove();
+        this.sceneKey = null;
         this.svg.attr("width", width).attr("height", height);
         const title = this.localizationManager.getDisplayName("Visual_LandingTitle");
         const body = this.localizationManager.getDisplayName("Visual_LandingBody");

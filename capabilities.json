@@ -121,11 +121,17 @@
           "type": {
             "enumeration": [
               { "value": "variance", "displayName": "Variance composite", "displayNameKey": "Visual_Enum_Variance" },
+              { "value": "vertical", "displayName": "Variance composite (vertical)", "displayNameKey": "Visual_Enum_Vertical" },
               { "value": "timeseries", "displayName": "Time series", "displayNameKey": "Visual_Enum_TimeSeries" },
               { "value": "waterfall", "displayName": "Waterfall", "displayNameKey": "Visual_Enum_Waterfall" },
               { "value": "table", "displayName": "Semantic table", "displayNameKey": "Visual_Enum_Table" }
             ]
           }
+        },
+        "showTotals": {
+          "displayName": "Show totals row",
+          "displayNameKey": "Visual_Slice_ShowTotals",
+          "type": { "bool": true }
         }
       }
     },
@@ -234,8 +240,7 @@
     },
     "notation": {
       "displayName": "Notation",
-      "displayNameKey": "Visual_Object_Notation",
-      "properties": {
+      "displayNameKey": "Visual_Object_Notation",      "properties": {
         "acColor": {
           "displayName": "Actual color",
           "displayNameKey": "Visual_Slice_ACColor",
@@ -255,6 +260,32 @@
           "displayName": "Row height",
           "displayNameKey": "Visual_Slice_RowHeight",
           "type": { "numeric": true }
+        },
+        "outlierScale": {
+          "displayName": "Outlier scaling",
+          "displayNameKey": "Visual_Slice_OutlierScale",
+          "type": {
+            "enumeration": [
+              { "value": "auto", "displayName": "Auto (truncate dominant outliers)", "displayNameKey": "Visual_Enum_Auto" },
+              { "value": "off", "displayName": "Off", "displayNameKey": "Visual_Enum_Off" }
+            ]
+          }
+        }
+      }
+    },
+    "gridlines": {
+      "displayName": "Gridlines",
+      "displayNameKey": "Visual_Object_Gridlines",
+      "properties": {
+        "show": {
+          "displayName": "Show gridlines",
+          "displayNameKey": "Visual_Slice_ShowGridlines",
+          "type": { "bool": true }
+        },
+        "color": {
+          "displayName": "Gridline color",
+          "displayNameKey": "Visual_Slice_GridlineColor",
+          "type": { "fill": { "solid": { "color": true } } }
         }
       }
     },
@@ -343,5 +374,6 @@
   "supportsLandingPage": true,
   "supportsKeyboardFocus": true,
   "supportsMultiVisualSelection": true,
+  "supportsHighlight": true,
   "privileges": []
 }

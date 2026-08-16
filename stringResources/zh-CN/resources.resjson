@@ -36,8 +36,12 @@
   "Visual_Slice_ACColor": "实际值颜色",
   "Visual_Slice_OutlineColor": "轮廓颜色",
   "Visual_Slice_LabelWidth": "类别标签宽度",
-  "Visual_Slice_RowHeight": "行高（像素）",
+  "Visual_Slice_RowHeight": "行高（0 =填满）",
   "Visual_Enum_Variance": "方差组合图",
+  "Visual_Enum_Off": "关闭",
+  "Visual_Slice_OutlierScale": "异常值缩放",
+  "Visual_Slice_ShowTotals": "显示合计行",
+  "Visual_Enum_Vertical": "方差组合图（纵向）",
   "Visual_Enum_TimeSeries": "时间序列",
   "Visual_Enum_Waterfall": "瀑布图",
   "Visual_Enum_Table": "语义表格",
@@ -85,5 +89,8 @@
   "Visual_Slice_ComparisonMode": "对比模式",
   "Visual_Enum_ComparisonSingle": "选定基准",
   "Visual_Enum_ComparisonAll": "全部可用基准",
-  "Visual_Tooltip_Category": "类别"
+  "Visual_Tooltip_Category": "类别",
+  "Visual_Object_Gridlines": "网格线",
+  "Visual_Slice_ShowGridlines": "显示网格线",
+  "Visual_Slice_GridlineColor": "网格线颜色"
 }

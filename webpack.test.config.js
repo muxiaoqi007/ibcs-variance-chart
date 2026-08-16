@@ -3,14 +3,17 @@ const path = require("path");
 module.exports = {
     mode: "development",
     target: "node",
-    entry: "./test/smoke.ts",
+    entry: {
+        smoke: "./test/smoke.ts",
+        unit: "./test/unit.ts"
+    },
     devtool: false,
     externals: {
         jsdom: "commonjs jsdom"
     },
     output: {
         path: path.resolve(__dirname, ".test-build"),
-        filename: "smoke.bundle.js"
+        filename: "[name].bundle.js"
     },
     resolve: {
         extensions: [".ts", ".js"],

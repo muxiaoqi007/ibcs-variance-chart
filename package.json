@@ -11,9 +11,11 @@
     "prepare-api-schema": "node scripts/prepare-api-schema.js",
     "build": "npm run prepare-api-schema && webpack --mode production",
     "dev": "npm run prepare-api-schema && webpack --mode development --watch",
-    "test": "webpack --config webpack.test.config.js && node .test-build/smoke.bundle.js",
+    "test": "npm run test:smoke && npm run test:unit",
     "lint": "npx eslint .",
-    "eslint": "npx eslint ."
+    "eslint": "npx eslint .",
+    "test:smoke": "webpack --config webpack.test.config.js && node .test-build/smoke.bundle.js",
+    "test:unit": "webpack --config webpack.test.config.js && node .test-build/unit.bundle.js"
   },
   "dependencies": {
     "d3": "^7.9.0",
@@ -33,6 +35,7 @@
     "less": "^4.2.0",
     "less-loader": "^11.1.4",
     "mini-css-extract-plugin": "^2.8.1",
+    "mocha": "^11.8.0",
     "powerbi-visuals-tools": "^6.2.0",
     "powerbi-visuals-webpack-plugin": "^5.0.3",
     "style-loader": "^3.3.4",

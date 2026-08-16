@@ -6,7 +6,7 @@ import * as d3 from "d3";
 import powerbi from "powerbi-visuals-api";
 import { ScenarioKind, scenarioStyle, applyBarStyle, varianceColor, ensureHatchPattern } from "../ibcs";
 import { formatSigned, measureText, truncateText } from "../helpers";
-import { RenderContext, bindInteractions, selectionOpacity, TooltipItem } from "./common";
+import { RenderContext, bindInteractions, dataPointOpacity, TooltipItem } from "./common";
 
 const MIN_POINTER_TARGET = 24;
 
@@ -22,6 +22,8 @@ export interface WaterfallColumn {
     to?: number;
     selectionId: powerbi.visuals.ISelectionId;
     selectionIds?: powerbi.visuals.ISelectionId[];
+    /** Cross-visual highlight state (aggregated over the source rows). */
+    highlighted: boolean;
     tooltipExtra: TooltipItem[];
 }
 
@@ -34,6 +36,14 @@ export interface WaterfallModel {
 export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void {
     const { svg, width, height, colors, settings, formatter, fontSize } = ctx;
     ensureHatchPattern(svg, colors.outline);
+
+    // Persistent container: rebuilt per update but keeps the svg (defs,
+    // sibling structure) intact so cross-updates stay cheap.
+    let chart = svg.select<SVGGElement>("g.ibcs-wf-chart");
+    if (chart.empty()) {
+        chart = svg.append("g").attr("class", "ibcs-wf-chart");
+    }
+    chart.selectAll("*").remove();
 
     const columns = model.columns;
     if (columns.length === 0) {
@@ -78,7 +88,7 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
     const y = d3.scaleLinear().domain([lo, hi * 1.08]).range([topPad + plotH, topPad]);
     const zeroY = y(0);
 
-    svg.append("line")
+    chart.append("line")
         .attr("x1", 4)
         .attr("x2", 4 + plotW)
         .attr("y1", zeroY)
@@ -103,14 +113,14 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
             style = { fill, stroke: null, strokeWidth: 0, dasharray: null };
         }
 
-        const rect = svg
+        const rect = chart
             .append("rect")
             .attr("class", "ibcs-wf-bar")
             .attr("x", xPos)
             .attr("y", top)
             .attr("width", bw)
             .attr("height", h)
-            .attr("opacity", selectionOpacity(ctx, col.selectionId));
+            .attr("opacity", dataPointOpacity(ctx, col.selectionId, col.highlighted));
         applyBarStyle(rect as d3.Selection<SVGRectElement, unknown, null, undefined>, style);
 
         const items = (): TooltipItem[] => {
@@ -133,7 +143,7 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
         const hitHeight = Math.min(plotH, Math.max(MIN_POINTER_TARGET, h));
         const hitCenter = (top + bottom) / 2;
         const hitY = Math.max(topPad, Math.min(hitCenter - hitHeight / 2, topPad + plotH - hitHeight));
-        const hitRect = svg
+        const hitRect = chart
             .append("rect")
             .attr("class", "ibcs-wf-hit")
             .attr("x", xPos)
@@ -146,19 +156,20 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
 
         if (showLabels) {
             const isNeg = col.type === "step" && col.value < 0;
-            svg.append("text")
+            chart.append("text")
                 .attr("x", xPos + bw / 2)
                 .attr("y", isNeg ? bottom + fontSize : top - 3)
                 .attr("text-anchor", "middle")
                 .attr("font-size", fontSize - 1)
                 .attr("fill", col.type === "step" ? varianceColor(col.value, goodDirection, colorMode, colors) : colors.text)
+                .attr("opacity", dataPointOpacity(ctx, col.selectionId, col.highlighted))
                 .attr("pointer-events", "none")
                 .text(col.type === "step" ? formatSigned(formatter, col.value) : formatter(col.value));
         }
 
         // connector to next column
         if (i < columns.length - 1 && columns[i + 1].type === "step") {
-            svg.append("line")
+            chart.append("line")
                 .attr("x1", xPos + bw)
                 .attr("x2", (x(i + 1) ?? 0))
                 .attr("y1", y(col.to ?? 0))
@@ -172,7 +183,7 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
     // x labels with rotation when crowded
     const maxLabelW = d3.max(columns, (c) => measureText(c.label, fontSize - 1)) ?? 0;
     const crowded = maxLabelW > bw + 6;
-    svg.append("g")
+    chart.append("g")
         .selectAll("text")
         .data(columns)
         .enter()
