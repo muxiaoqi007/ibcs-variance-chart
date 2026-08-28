@@ -157,10 +157,14 @@ export function topNDataView(mode: "items" | "percentage", limit: number): Recor
         source: { displayName: "PY", roles: { py: true } },
         values: [40, 20, 8, 4]
     };
+    const tooltipCol = {
+        source: { displayName: "Orders", roles: { tooltips: true }, format: "#,0" },
+        values: [6, 3, 2, 1]
+    };
 
     return {
         metadata: {
-            columns: [categoryCol.source, acCol.source, pyCol.source],
+            columns: [categoryCol.source, acCol.source, pyCol.source, tooltipCol.source],
             objects: {
                 topN: {
                     mode,
@@ -171,7 +175,7 @@ export function topNDataView(mode: "items" | "percentage", limit: number): Recor
                 }
             }
         },
-        categorical: { categories: [categoryCol], values: [acCol, pyCol] }
+        categorical: { categories: [categoryCol], values: [acCol, pyCol, tooltipCol] }
     };
 }
 
@@ -200,10 +204,12 @@ export function withTotals(dv: Record<string, unknown>, mode: string): Record<st
     return dv;
 }
 
-export function makeHost(highContrast = false): Record<string, unknown> {
+export function makeHost(highContrast = false, allowInteractions = true): Record<string, unknown> {
     let counter = 0;
     let identityKey: string | null = null;
     const selectedTargets: unknown[] = [];
+    const multiSelectFlags: boolean[] = [];
+    const contextMenuCalls: unknown[] = [];
     const builder: Record<string, unknown> = {};
     builder.withCategory = (column: { identity?: Array<{ key?: string }> }, index: number) => {
         const values = (column as { values?: unknown[] }).values;
@@ -228,19 +234,22 @@ export function makeHost(highContrast = false): Record<string, unknown> {
 
     return {
         createSelectionManager: () => ({
-            select: async (target: unknown) => {
+            select: async (target: unknown, multiSelect?: boolean) => {
                 const targets = Array.isArray(target) ? target : [target];
                 if (targets.some((item) => !(item as { hasIdentity?: () => boolean })?.hasIdentity?.())) {
                     throw new Error("Selection contained an empty identity");
                 }
                 selectedTargets.push(target);
+                multiSelectFlags.push(multiSelect === true);
 
                 return targets;
             },
             clear: async () => [],
             hasSelection: () => false,
             getSelectionIds: () => [],
-            showContextMenu: () => undefined,
+            showContextMenu: (...args: unknown[]) => {
+                contextMenuCalls.push(args);
+            },
             registerOnSelectCallback: () => undefined
         }),
         createSelectionIdBuilder: () => builder,
@@ -269,10 +278,12 @@ export function makeHost(highContrast = false): Record<string, unknown> {
             renderingFinished: () => undefined,
             renderingFailed: (_o: unknown, _message?: string) => undefined
         },
-        hostCapabilities: { allowInteractions: true },
+        hostCapabilities: { allowInteractions },
         persistProperties: () => undefined,
         applyJsonFilter: () => undefined,
-        __selectedTargets: selectedTargets
+        __selectedTargets: selectedTargets,
+        __multiSelectFlags: multiSelectFlags,
+        __contextMenuCalls: contextMenuCalls
     };
 }
 

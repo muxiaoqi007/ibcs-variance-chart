@@ -18,6 +18,7 @@ import { RenderContext, bindInteractions, TooltipItem, clamp, configuredRowHeigh
 
 export interface VarianceRow {
     label: string;
+    categoryLabel?: string;
     selectionId: powerbi.visuals.ISelectionId;
     selectionIds?: powerbi.visuals.ISelectionId[];
     ac: number | null;
@@ -478,7 +479,10 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
         .attr("height", rowH)
         .each(function (d) {
             const tooltipItems = (): TooltipItem[] => {
-                const items: TooltipItem[] = [];
+                const items: TooltipItem[] = [{
+                    displayName: ctx.localization.getDisplayName("Visual_Tooltip_Category") || "Category",
+                    value: d.categoryLabel || d.label
+                }];
                 if (d.ac !== null) {
                     items.push({ displayName: "AC", value: formatter(d.ac) });
                 }

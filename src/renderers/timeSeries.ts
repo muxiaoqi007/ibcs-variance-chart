@@ -44,14 +44,18 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     const plotH = Math.max(0, height - legendH - xLabelH - topPad);
 
     const allValues = points.flatMap((p) => Object.values(p.values).filter((v): v is number => v !== undefined && isFinite(v)));
-    const maxVal = d3.max(allValues) ?? 0;
-    const minVal = Math.min(0, d3.min(allValues) ?? 0);
-    if (maxVal <= minVal) {
-        return;
-    }
+    const rawMax = d3.max(allValues) ?? 0;
+    const rawMin = d3.min(allValues) ?? 0;
+    const sameValue = rawMax === rawMin;
+    const pad = Math.max(1, Math.abs(rawMax || rawMin) * 0.1);
+    // Preserve a zero baseline for bar geometry while padding degenerate
+    // domains so all-zero/all-single-value series remain visible.
+    const minVal = sameValue ? Math.min(0, rawMin - pad) : Math.min(0, rawMin);
+    const maxVal = sameValue ? Math.max(0, rawMax + pad) : Math.max(0, rawMax);
+    const domainMax = maxVal > 0 ? maxVal * 1.1 : maxVal;
 
     const x = d3.scaleBand<string>().domain(points.map((p) => p.label)).range([4, 4 + plotW]).paddingInner(0.28).paddingOuter(0.12);
-    const y = d3.scaleLinear().domain([minVal, maxVal * 1.1]).range([topPad + plotH, topPad]);
+    const y = d3.scaleLinear().domain([minVal, domainMax]).range([topPad + plotH, topPad]);
     const zeroY = y(Math.max(0, minVal));
 
     // baseline
@@ -68,7 +72,10 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     const scenarioLabel = (k: ScenarioKind): string => model.scenarioDisplay[k] ?? k;
 
     const tooltipFor = (p: TimeSeriesModel["points"][number]): TooltipItem[] => {
-        const items: TooltipItem[] = [];
+        const items: TooltipItem[] = [{
+            displayName: ctx.localization.getDisplayName("Visual_Tooltip_Category") || "Category",
+            value: p.label
+        }];
         for (const kind of overlayOrder) {
             const v = p.values[kind];
             if (v !== undefined) {

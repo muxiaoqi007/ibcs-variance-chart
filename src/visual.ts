@@ -64,6 +64,9 @@ export class Visual implements IVisual {
         this.svg = this.root.append("svg");
 
         this.svg.on("click", () => {
+            if (!this.allowInteractions) {
+                return;
+            }
             if (this.selectionManager.hasSelection()) {
                 this.selectionManager.clear().then(() => {
                     this.redraw();
@@ -71,6 +74,9 @@ export class Visual implements IVisual {
             }
         });
         this.svg.on("contextmenu", (event: MouseEvent) => {
+            if (!this.allowInteractions) {
+                return;
+            }
             event.preventDefault();
             this.selectionManager.showContextMenu({}, { x: event.clientX, y: event.clientY });
         });
@@ -366,7 +372,8 @@ export class Visual implements IVisual {
 
         const rankBy = String(settings.rankBy.value ?? "variance");
         const score = (row: ParseOutput["rows"][number]): number => {
-            const ac = row.values.AC ?? row.values.UNKNOWN ?? 0;
+            // UNKNOWN scenarios must never be silently treated as AC.
+            const ac = row.values.AC ?? 0;
             if (rankBy === "variance" && baseKind) {
                 const base = row.values[baseKind];
                 if (base !== undefined && row.values.AC !== undefined) {
@@ -404,7 +411,14 @@ export class Visual implements IVisual {
 
         const hidden = ranked.slice(take);
         const values: Partial<Record<ScenarioKind, number>> = {};
-        const tooltipRaw = Array.from({ length: Math.max(0, ...hidden.map((row) => row.tooltipRaw.length)) }, () => null as number | null);
+        const tooltipLength = Math.max(0, ...hidden.map((row) => row.tooltipRaw.length));
+        const tooltipRaw = Array.from({ length: tooltipLength }, (_value, index) => {
+            const values = hidden
+                .map((row) => row.tooltipRaw[index])
+                .filter((value): value is number => value !== null && Number.isFinite(value));
+
+            return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) : null;
+        });
         for (const row of hidden) {
             for (const [kind, value] of Object.entries(row.values) as Array<[ScenarioKind, number]>) {
                 values[kind] = (values[kind] ?? 0) + value;
@@ -508,6 +522,7 @@ export class Visual implements IVisual {
 
                 return {
                     label: r.label,
+                    categoryLabel: r.label,
                     selectionId: r.selectionId,
                     selectionIds: r.selectionIds,
                     ac,
@@ -588,7 +603,7 @@ export class Visual implements IVisual {
         } else {
             let total = 0;
             for (const r of parsed.rows) {
-                const ac = r.values.AC ?? r.values.UNKNOWN;
+                const ac = r.values.AC;
                 if (ac === undefined) {
                     continue;
                 }
@@ -628,6 +643,7 @@ export class Visual implements IVisual {
 
                 return {
                     label: r.label,
+                    categoryLabel: r.label,
                     selectionId: r.selectionId,
                     selectionIds: r.selectionIds,
                     ac,

@@ -146,7 +146,7 @@ export function bindInteractions(
                 return;
             }
             event.stopPropagation();
-            ctx.selectionManager.select(identities.length === 1 ? identities[0] : identities, event.ctrlKey).then(() => {
+            ctx.selectionManager.select(identities.length === 1 ? identities[0] : identities, event.ctrlKey || event.metaKey).then(() => {
                 ctx.onInteraction();
             });
         })
@@ -173,7 +173,7 @@ export function bindInteractions(
             if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
                 event.stopPropagation();
-                ctx.selectionManager.select(identities.length === 1 ? identities[0] : identities, event.ctrlKey).then(() => ctx.onInteraction());
+                ctx.selectionManager.select(identities.length === 1 ? identities[0] : identities, event.ctrlKey || event.metaKey).then(() => ctx.onInteraction());
             } else if (event.key === "F10" && event.shiftKey && identities.length === 1) {
                 event.preventDefault();
                 event.stopPropagation();

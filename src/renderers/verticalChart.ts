@@ -377,7 +377,10 @@ export function renderVerticalVarianceChart(ctx: RenderContext, model: VarianceM
         .attr("height", plotH)
         .each(function (d) {
             const tooltipItems = (): TooltipItem[] => {
-                const items: TooltipItem[] = [];
+                const items: TooltipItem[] = [{
+                    displayName: ctx.localization.getDisplayName("Visual_Tooltip_Category") || "Category",
+                    value: d.categoryLabel || d.label
+                }];
                 if (d.ac !== null) {
                     items.push({ displayName: "AC", value: formatter(d.ac) });
                 }

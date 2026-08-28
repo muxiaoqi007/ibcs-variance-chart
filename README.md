@@ -1,14 +1,15 @@
 # IBCS Charts for Power BI
 
-符合 [IBCS](https://www.ibcs.com/)（International Business Communication Standards）记法的 Power BI 自定义视觉对象，交互与风格参考 Zebra BI。一个视觉对象内置四种图表模式，支持"场景维度字段（长表）"与"专用场景度量（宽表）"两种数据接入方式。
+参考 [IBCS](https://www.ibcs.com/)（International Business Communication Standards）语义记法构建的 Power BI 自定义视觉对象，交互与风格参考 Zebra BI。本项目不是 IBCS 官方认证产品。一个视觉对象内置五种图表模式，支持"场景维度字段（长表）"与"专用场景度量（宽表）"两种数据接入方式。
 
-## 四种图表模式
+## 五种图表模式
 
 在格式面板「图表 → 图表类型」中切换：
 
 | 模式 | 说明 |
 | --- | --- |
 | 方差组合图（默认） | 每行一个类别：AC 实心横条 + ΔPY 左右发散增减条 + ΔPY% 棒棒糖标记（数值右对齐），即 Zebra BI 的经典组合表 |
+| 纵向方差图 | 每个类别使用纵向 AC / 基准柱、绝对差异柱和百分比棒棒糖，适合横向类别较少的比较场景 |
 | 时间序列 | 按时间轴叠加场景列：PY 空心 / PL 斜纹 / FC 虚线空心 / AC 实心前置，底部带语义图例 |
 | 瀑布图 | 有基准场景时为"基准合计 → 各类别差异 → 实际合计"的差异瀑布；否则为数值增量瀑布 + 合计列 |
 | 语义表格 | IBCS 记法表格：右对齐数字、场景缩写列头、差异列绿/红着色、基准场景列灰色弱化 |
@@ -81,7 +82,7 @@ npm run dev              # 开发监听
 
 > 注意：webpack 插件 `generatePbiviz` 直接产出的 .pbiviz 缺少宿主插件注册包装器（`visuals.plugins.<guid>`），导入后画布空白；**必须用 `npx pbiviz package`**。CLI 要求四段式版本号（如 `1.6.0.0`）且 `tsconfig.json` 必须含 `files` 字段。
 
-自检（jsdom 全链路，覆盖四种模式、场景识别与排序）：
+自检（jsdom 全链路，覆盖五种模式、场景识别、边界值、交互与排序）：
 
 ```bash
 npm test

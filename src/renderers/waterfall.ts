@@ -79,13 +79,15 @@ export function renderWaterfall(ctx: RenderContext, model: WaterfallModel): void
     const lows = columns.map((c) => Math.min(c.from ?? 0, c.to ?? 0));
     const highs = columns.map((c) => Math.max(c.from ?? 0, c.to ?? 0));
     const lo = Math.min(0, d3.min(lows) ?? 0);
-    const hi = d3.max(highs) ?? 0;
-    if (hi <= lo) {
-        return;
-    }
+    const rawHi = d3.max(highs) ?? 0;
+    const hi = Math.max(0, rawHi);
+    const equalRange = hi <= lo;
+    const rangePad = Math.max(1, Math.abs(hi || lo) * 0.1);
+    const domainLo = equalRange ? lo - rangePad : lo;
+    const domainHi = equalRange ? hi + rangePad : hi * 1.08;
 
     const x = d3.scaleBand<number>().domain(d3.range(columns.length)).range([4, 4 + plotW]).paddingInner(0.3).paddingOuter(0.15);
-    const y = d3.scaleLinear().domain([lo, hi * 1.08]).range([topPad + plotH, topPad]);
+    const y = d3.scaleLinear().domain([domainLo, domainHi]).range([topPad + plotH, topPad]);
     const zeroY = y(0);
 
     chart.append("line")

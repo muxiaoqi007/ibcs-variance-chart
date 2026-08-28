@@ -12,6 +12,7 @@ import { RenderContext, bindInteractions, TooltipItem, clamp, configuredRowHeigh
 export interface TableModel {
     rows: Array<{
         label: string;
+        categoryLabel?: string;
         selectionId: powerbi.visuals.ISelectionId;
         selectionIds?: powerbi.visuals.ISelectionId[];
         ac: number | null;
@@ -277,7 +278,10 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
         .attr("height", rowH)
         .each(function (d) {
             const items = (): TooltipItem[] => {
-                const list: TooltipItem[] = [];
+                const list: TooltipItem[] = [{
+                    displayName: ctx.localization.getDisplayName("Visual_Tooltip_Category") || "Category",
+                    value: d.categoryLabel || d.label
+                }];
                 if (showBase && d.base !== null) {
                     list.push({ displayName: model.baseLabel, value: formatter(d.base) });
                 }

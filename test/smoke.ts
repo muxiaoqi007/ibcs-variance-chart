@@ -34,8 +34,8 @@ function check(name: string, cond: boolean, detail?: string): void {
 
 // Hosts used by render assertions must turn rendering failures into test
 // failures; the harness default is silent.
-function newHost(highContrast = false): Record<string, unknown> {
-    const host = makeHost(highContrast);
+function newHost(highContrast = false, allowInteractions = true): Record<string, unknown> {
+    const host = makeHost(highContrast, allowInteractions);
     (host.eventService as Record<string, unknown>).renderingFailed = (_o: unknown, message?: string) => {
         console.log("RENDERING_FAILED_EVENT:", message);
         failures++;
@@ -84,6 +84,7 @@ check("AC bars rendered", html.includes("ibcs-ac-bar"), `rects=${(html.match(/<r
 check("delta bars rendered", html.includes("ibcs-delta-bar"));
 check("ΔPY header present", html.includes("ΔPY"));
 check("labels present", (html.match(/<text/g) ?? []).length >= 5, `texts=${(html.match(/<text/g) ?? []).length}`);
+check("variance tooltip includes category name", html.includes("Category:"));
 
 console.log("=== formatting model and runtime recovery ===");
 const formattingVisual = makeVisual(newHost()) as {
@@ -133,6 +134,21 @@ const parsedD = parseDataView(dimensionModeDataView(), host);
 check("dimension parsed", !!parsedD && parsedD.rows.length === 3, `rows=${parsedD?.rows.length}`);
 check("dimension pivot AC", parsedD?.rows[0]?.values.AC === 36.4e9);
 check("dimension pivot PL", parsedD?.rows[0]?.values.PL === 35e9);
+const unknownScenarioView: Record<string, unknown> = {
+    metadata: {
+        columns: [],
+        objects: { topN: { mode: "items", count: 1, rankBy: "ac", includeOthers: false } }
+    },
+    categorical: {
+        categories: [
+            { identity: [], source: { displayName: "Category", roles: { category: true } }, values: ["First", "Second"] },
+            { identity: [], source: { displayName: "Scenario", roles: { scenario: true } }, values: ["Mystery", "Mystery"] }
+        ],
+        values: [{ source: { displayName: "Value", roles: { value: true } }, values: [1, 100] }]
+    }
+};
+html = runUpdate(makeVisual(host), unknownScenarioView);
+check("UNKNOWN scenario values are not silently ranked as AC", html.includes("First") && !html.includes("Second"));
 
 console.log("=== parse: duplicate labels preserve distinct identities ===");
 const parsedDuplicates = parseDataView(duplicateLabelDataView(), host);
@@ -143,6 +159,7 @@ check("second duplicate identity aggregates scenarios", parsedDuplicates?.rows[1
 console.log("=== render: dimension mode as table ===");
 html = runUpdate(makeVisual(host), withMode(dimensionModeDataView() as Record<string, unknown>, "table"));
 check("table rendered rows", (html.match(/ibcs-trow/g) ?? []).length >= 3, `trows=${(html.match(/ibcs-trow/g) ?? []).length}`);
+check("table tooltip includes category name", html.includes("Category:"));
 check("table has ΔPY header", html.includes("ΔPY"));
 
 console.log("=== render: time series mode ===");
@@ -150,7 +167,19 @@ html = runUpdate(makeVisual(host), withMode(timeSeriesDataView() as Record<strin
 check("time series bars", (html.match(/<rect/g) ?? []).length >= 8, `rects=${(html.match(/<rect/g) ?? []).length}`);
 check("AC series group", html.includes("ibcs-series-AC"));
 check("time series includes extra tooltip", html.includes("Margin:"));
+check("time series tooltip includes category name", html.includes("Category: 202601"));
 check("data points expose keyboard semantics", html.includes('tabindex="0"') && html.includes('role="button"'));
+const zeroTimeSeries = timeSeriesDataView() as { categorical: { values: Array<Record<string, unknown>> } };
+(zeroTimeSeries.categorical.values.find((col) => (col.source as { roles?: Record<string, boolean> }).roles?.value)?.values as number[]).fill(0);
+html = runUpdate(makeVisual(host), withMode(zeroTimeSeries as unknown as Record<string, unknown>, "timeseries"));
+const zeroSeriesBars = Array.from((w.document as Document).querySelectorAll<SVGRectElement>("g.ibcs-series-AC rect"));
+check("all-zero time series remains visible", zeroSeriesBars.length === 4 && zeroSeriesBars.every((bar) => Number(bar.getAttribute("height")) >= 1) && !html.includes("NaN"));
+const negativeTimeSeries = timeSeriesDataView() as { categorical: { values: Array<Record<string, unknown>> } };
+const negativeValues = negativeTimeSeries.categorical.values.find((col) => (col.source as { roles?: Record<string, boolean> }).roles?.value)?.values as number[];
+negativeValues.forEach((value, index) => { negativeValues[index] = -Math.abs(value); });
+html = runUpdate(makeVisual(host), withMode(negativeTimeSeries as unknown as Record<string, unknown>, "timeseries"));
+const negativeSeriesBars = Array.from((w.document as Document).querySelectorAll<SVGRectElement>("g.ibcs-series-AC rect"));
+check("all-negative time series remains visible", negativeSeriesBars.length === 4 && negativeSeriesBars.every((bar) => Number(bar.getAttribute("height")) > 1) && !html.includes("NaN"));
 
 console.log("=== responsive density ===");
 html = runUpdate(makeVisual(host), manyRowsDataView(), 480, 120);
@@ -187,8 +216,20 @@ check("item Top N keeps requested items plus Others", (html.match(/ibcs-row/g) ?
 check("item Top N includes Others", html.includes("Visual_Others"));
 check("item Top N excludes lower ranked labels", !html.includes("Gamma") && !html.includes("Delta"));
 const othersHit = (w.document as Document).querySelector("g.ibcs-row:last-of-type rect.ibcs-hit") as SVGRectElement;
+check("Others tooltip aggregates hidden tooltip measures", othersHit?.getAttribute("aria-label")?.includes("Orders: 3") === true);
 othersHit.dispatchEvent(new (w.MouseEvent as typeof MouseEvent)("click", { bubbles: true }));
 check("clicking Others selects all aggregated identities", Array.isArray(topNHost.__selectedTargets[0]) && (topNHost.__selectedTargets[0] as unknown[]).length === 2);
+
+console.log("=== interaction capability and platform modifiers ===");
+const macHost = newHost() as { __multiSelectFlags: boolean[] };
+runUpdate(makeVisual(macHost), measureModeDataView());
+(w.document as Document).querySelector("g.ibcs-row rect.ibcs-hit")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, metaKey: true }));
+check("Command-click requests multi-select on macOS", macHost.__multiSelectFlags[0] === true);
+const readOnlyHost = newHost(false, false) as { __contextMenuCalls: unknown[] };
+runUpdate(makeVisual(readOnlyHost), measureModeDataView());
+(w.document as Document).querySelector("svg")?.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, clientX: 20, clientY: 30 }));
+check("read-only host suppresses root context menu", readOnlyHost.__contextMenuCalls.length === 0);
+
 html = runUpdate(makeVisual(host), topNDataView("percentage", 80));
 check("percentage Top N reaches cumulative threshold", html.includes("Alpha") && html.includes("Beta") && !html.includes("Gamma"));
 html = runUpdate(makeVisual(host), withMode(topNDataView("items", 2) as Record<string, unknown>, "waterfall"));
@@ -253,6 +294,7 @@ check("vertical pct lollipops rendered", (html.match(/ibcs-vpct-dot/g) ?? []).le
 check("vertical category labels rendered", html.includes("麻醉重症"));
 const verticalHit = (w.document as Document).querySelector("g.ibcs-vcol rect.ibcs-hit");
 check("vertical columns expose interaction targets", verticalHit?.getAttribute("tabindex") === "0");
+check("vertical tooltip includes category name", verticalHit?.getAttribute("aria-label")?.includes("Category:") === true);
 const verticalHost = newHost() as { __selectedTargets: unknown[] };
 html = runUpdate(makeVisual(verticalHost), withMode(measureModeDataView() as Record<string, unknown>, "vertical"));
 (w.document as Document).querySelector("g.ibcs-vcol rect.ibcs-hit")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
@@ -345,6 +387,22 @@ check(
 check("waterfall tooltip includes category name", html.includes("Category: 麻醉重症"));
 waterfallHits[2]?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
 check("clicking an expanded waterfall target selects its category", waterfallHost.__selectedTargets.length === 1);
+const negativeWaterfall = measureModeDataView() as { categorical: { values: Array<Record<string, unknown>> } };
+negativeWaterfall.categorical.values.forEach((column) => {
+    if ((column.source as { roles?: Record<string, boolean> }).roles?.ac || (column.source as { roles?: Record<string, boolean> }).roles?.py) {
+        (column.values as number[]).forEach((value, index, values) => { values[index] = -Math.abs(value); });
+    }
+});
+html = runUpdate(makeVisual(host), withMode(negativeWaterfall as unknown as Record<string, unknown>, "waterfall"));
+check("all-negative waterfall remains visible", (html.match(/ibcs-wf-bar/g) ?? []).length === 7 && !html.includes("NaN"));
+const zeroWaterfall = measureModeDataView() as { categorical: { values: Array<Record<string, unknown>> } };
+zeroWaterfall.categorical.values.forEach((column) => {
+    if ((column.source as { roles?: Record<string, boolean> }).roles?.ac || (column.source as { roles?: Record<string, boolean> }).roles?.py) {
+        (column.values as number[]).fill(0);
+    }
+});
+html = runUpdate(makeVisual(host), withMode(zeroWaterfall as unknown as Record<string, unknown>, "waterfall"));
+check("all-zero waterfall remains visible", (html.match(/ibcs-wf-bar/g) ?? []).length === 7 && !html.includes("NaN"));
 
 console.log("=== landing page (no data) ===");
 html = runUpdate(makeVisual(host), null);

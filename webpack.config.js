@@ -53,7 +53,7 @@ module.exports = (env, argv) => {
         stringResources: pbiviz.stringResources || [],
         devMode: !isProduction,
         generateResources: true,
-        generatePbiviz: true,
+        generatePbiviz: false,
         packageOutPath: path.resolve(__dirname, "dist")
       })
     ],
