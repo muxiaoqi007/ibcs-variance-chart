@@ -82,6 +82,8 @@
 
 工具链（已在 Windows 环境验证）：
 
+- Node.js `24.18.1`（CI 与本地一致；jsdom 30 不支持 Node 20）
+
 - Power BI visuals API `5.9.0`（`powerbi-visuals-api ~5.9.0`）
 - TypeScript 5.5 + webpack 5 + D3 v7
 - `powerbi-visuals-utils-formattingmodel 6.0.4`（精确锁定，勿用 7.x ESM）
