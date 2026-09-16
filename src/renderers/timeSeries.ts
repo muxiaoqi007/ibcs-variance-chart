@@ -4,8 +4,9 @@
 import * as d3 from "d3";
 import powerbi from "powerbi-visuals-api";
 import { ScenarioKind, SCENARIO_ORDER, scenarioStyle, applyBarStyle, ensureHatchPattern } from "../ibcs";
-import { measureText } from "../helpers";
-import { RenderContext, bindInteractions, dataPointOpacity, TooltipItem } from "./common";
+import { measureText, truncateText, formatSigned, formatSignedPercent } from "../helpers";
+import { resolveBaseScenario } from "../dataModel";
+import { RenderContext, bindInteractions, dataPointOpacity, TooltipItem, scenarioLabel } from "./common";
 
 export interface TimeSeriesModel {
     points: Array<{
@@ -32,7 +33,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     }
     chart.selectAll("*").remove();
 
-    const points = model.points;
+    const points = model.points.map((point, slot) => ({ ...point, slot }));
     if (points.length === 0) {
         return;
     }
@@ -40,7 +41,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     const legendH = fontSize + 10;
     const xLabelH = fontSize + 12;
     const topPad = showLabels ? fontSize + 6 : 6;
-    const plotW = width - 8;
+    const plotW = Math.max(0, width - 8);
     const plotH = Math.max(0, height - legendH - xLabelH - topPad);
 
     const allValues = points.flatMap((p) => Object.values(p.values).filter((v): v is number => v !== undefined && isFinite(v)));
@@ -54,7 +55,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
     const maxVal = sameValue ? Math.max(0, rawMax + pad) : Math.max(0, rawMax);
     const domainMax = maxVal > 0 ? maxVal * 1.1 : maxVal;
 
-    const x = d3.scaleBand<string>().domain(points.map((p) => p.label)).range([4, 4 + plotW]).paddingInner(0.28).paddingOuter(0.12);
+    const x = d3.scaleBand<number>().domain(points.map((p) => p.slot)).range([4, 4 + plotW]).paddingInner(0.28).paddingOuter(0.12);
     const y = d3.scaleLinear().domain([minVal, domainMax]).range([topPad + plotH, topPad]);
     const zeroY = y(Math.max(0, minVal));
 
@@ -69,7 +70,6 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
 
     const bw = x.bandwidth();
     const overlayOrder = SCENARIO_ORDER.filter((k) => model.present.includes(k));
-    const scenarioLabel = (k: ScenarioKind): string => model.scenarioDisplay[k] ?? k;
 
     const tooltipFor = (p: TimeSeriesModel["points"][number]): TooltipItem[] => {
         const items: TooltipItem[] = [{
@@ -79,7 +79,18 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
         for (const kind of overlayOrder) {
             const v = p.values[kind];
             if (v !== undefined) {
-                items.push({ displayName: kind === "AC" ? "AC" : scenarioLabel(kind), value: formatter(v) });
+                items.push({ displayName: scenarioLabel(ctx, kind), value: formatter(v) });
+            }
+        }
+        const baseKind = resolveBaseScenario(String(settings.scenarios.baseScenario.value), model.present);
+        const base = baseKind ? p.values[baseKind] : undefined;
+        if (base !== undefined && p.values.AC !== undefined) {
+            const delta = p.values.AC - base;
+            if (settings.variance.showDeltaAbs.value) {
+                items.push({ displayName: `Δ${scenarioLabel(ctx, baseKind)}`, value: formatSigned(formatter, delta) });
+            }
+            if (settings.variance.showDeltaPct.value && base !== 0) {
+                items.push({ displayName: `Δ${scenarioLabel(ctx, baseKind)}%`, value: formatSignedPercent(delta / base) });
             }
         }
 
@@ -99,7 +110,7 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
             .data(points.filter((p) => p.values[kind] !== undefined))
             .enter()
             .append("rect")
-            .attr("x", (p) => (x(p.label) ?? 0) + (bw - barW) / 2)
+            .attr("x", (p) => (x(p.slot) ?? 0) + (bw - barW) / 2)
             .attr("y", (p) => {
                 const v = p.values[kind] as number;
 
@@ -114,13 +125,25 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
         });
 
         if (showLabels && isAc) {
+            let previousRight = -Infinity;
+            const labeled = points.filter((p) => {
+                if (p.values.AC === undefined) return false;
+                const labelW = measureText(formatter(p.values.AC), fontSize - 1);
+                const center = (x(p.slot) ?? 0) + bw / 2;
+                const left = center - labelW / 2;
+                const right = center + labelW / 2;
+                if (left < 0 || right > width || left < previousRight + 6) return false;
+                previousRight = right;
+                return true;
+            });
             chart.append("g")
+                .attr("class", "ibcs-ts-values")
                 .selectAll("text")
-                .data(points.filter((p) => p.values.AC !== undefined))
+                .data(labeled)
                 .enter()
                 .append("text")
-                .attr("x", (p) => (x(p.label) ?? 0) + bw / 2)
-                .attr("y", (p) => y(p.values.AC as number) - 3)
+                .attr("x", (p) => (x(p.slot) ?? 0) + bw / 2)
+                .attr("y", (p) => Math.min(topPad + plotH - 2, y(p.values.AC as number) + ((p.values.AC as number) < 0 ? fontSize : -3)))
                 .attr("text-anchor", "middle")
                 .attr("font-size", fontSize - 1)
                 .attr("fill", colors.text)
@@ -131,38 +154,37 @@ export function renderTimeSeries(ctx: RenderContext, model: TimeSeriesModel): vo
 
     // --- x axis labels (skip crowded) ---
     const maxLabelW = d3.max(points, (p) => measureText(p.label, fontSize - 1)) ?? 0;
-    const step = Math.max(1, Math.ceil(maxLabelW / (bw + bw * 0.28)));
+    const step = Math.max(1, Math.ceil((maxLabelW + 6) / Math.max(1, x.step())));
     chart.append("g")
         .selectAll("text")
         .data(points.filter((_p, i) => i % step === 0))
         .enter()
         .append("text")
-        .attr("x", (p) => (x(p.label) ?? 0) + bw / 2)
+        .attr("x", (p) => (x(p.slot) ?? 0) + bw / 2)
         .attr("y", topPad + plotH + fontSize + 2)
         .attr("text-anchor", "middle")
         .attr("font-size", fontSize - 1)
         .attr("fill", colors.text)
-        .text((p) => p.label);
+        .text((p) => truncateText(p.label, Math.max(0, Math.min(width - 8, x.step() * step - 6)), fontSize - 1));
 
     // --- semantic legend ---
     const legendY = height - legendH + fontSize / 2;
     let cursor = 4;
+    const legendSlot = Math.max(0, (width - 8) / overlayOrder.length);
     for (const kind of overlayOrder) {
         const style = scenarioStyle(kind, colors);
         const g = chart.append("g").attr("transform", `translate(${cursor}, ${legendY})`);
         const glyph = g.append("rect").attr("x", 0).attr("y", -5).attr("width", 10).attr("height", 10);
         applyBarStyle(glyph as d3.Selection<SVGRectElement, unknown, null, undefined>, style);
-        const text = kind === "AC" ? "AC" : scenarioLabel(kind);
+        const text = scenarioLabel(ctx, kind);
         g.append("text")
             .attr("x", 14)
             .attr("y", 0)
             .attr("dy", "0.35em")
             .attr("font-size", fontSize - 1)
             .attr("fill", colors.text)
-            .text(text);
-        cursor += 14 + measureText(text, fontSize - 1) + 16;
-        if (cursor > width - 20) {
-            break;
-        }
+            .text(truncateText(text, Math.max(0, legendSlot - 24), fontSize - 1));
+        g.append("title").text(text);
+        cursor += legendSlot;
     }
 }

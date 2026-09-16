@@ -6,6 +6,7 @@ import { formattingSettings } from "powerbi-visuals-utils-formattingmodel";
 class ChartCard extends formattingSettings.SimpleCard {
     name = "chart";
     displayNameKey = "Visual_Object_Chart";
+    collapsible = true;
 
     mode = new formattingSettings.AutoDropdown({
         name: "mode",
@@ -19,12 +20,19 @@ class ChartCard extends formattingSettings.SimpleCard {
         value: false
     });
 
-    slices = [this.mode, this.showTotals];
+    aggregation = new formattingSettings.AutoDropdown({
+        name: "aggregation",
+        displayNameKey: "Visual_Slice_Aggregation",
+        value: "auto"
+    });
+
+    slices = [this.mode, this.showTotals, this.aggregation];
 }
 
 class ScenariosCard extends formattingSettings.SimpleCard {
     name = "scenarios";
     displayNameKey = "Visual_Object_Scenarios";
+    collapsible = true;
 
     baseScenario = new formattingSettings.AutoDropdown({
         name: "baseScenario",
@@ -38,12 +46,47 @@ class ScenariosCard extends formattingSettings.SimpleCard {
         value: "single"
     });
 
-    slices = [this.baseScenario, this.comparisonMode];
+    useDataLabels = new formattingSettings.ToggleSwitch({
+        name: "useDataLabels",
+        displayNameKey: "Visual_Slice_UseDataLabels",
+        value: false
+    });
+
+    acLabel = new formattingSettings.TextInput({
+        name: "acLabel",
+        displayNameKey: "Visual_Slice_ACLabel",
+        value: "AC",
+        placeholder: "AC"
+    });
+
+    pyLabel = new formattingSettings.TextInput({
+        name: "pyLabel",
+        displayNameKey: "Visual_Slice_PYLabel",
+        value: "PY",
+        placeholder: "PY"
+    });
+
+    plLabel = new formattingSettings.TextInput({
+        name: "plLabel",
+        displayNameKey: "Visual_Slice_PLLabel",
+        value: "PL",
+        placeholder: "PL"
+    });
+
+    fcLabel = new formattingSettings.TextInput({
+        name: "fcLabel",
+        displayNameKey: "Visual_Slice_FCLabel",
+        value: "FC",
+        placeholder: "FC"
+    });
+
+    slices = [this.baseScenario, this.comparisonMode, this.useDataLabels, this.acLabel, this.pyLabel, this.plLabel, this.fcLabel];
 }
 
 class VarianceCard extends formattingSettings.SimpleCard {
     name = "variance";
     displayNameKey = "Visual_Object_Variance";
+    collapsible = true;
 
     showDeltaAbs = new formattingSettings.ToggleSwitch({
         name: "showDeltaAbs",
@@ -81,12 +124,20 @@ class VarianceCard extends formattingSettings.SimpleCard {
         value: { value: "#D13438" }
     });
 
+    onPreProcess(): void {
+        const semantic = String(this.colorMode.value ?? "semantic") === "semantic";
+        this.goodDirection.visible = semantic;
+        this.positiveColor.visible = semantic;
+        this.negativeColor.visible = semantic;
+    }
+
     slices = [this.showDeltaAbs, this.showDeltaPct, this.colorMode, this.goodDirection, this.positiveColor, this.negativeColor];
 }
 
 class LabelsCard extends formattingSettings.SimpleCard {
     name = "labels";
     displayNameKey = "Visual_Object_Labels";
+    collapsible = true;
 
     showValueLabels = new formattingSettings.ToggleSwitch({
         name: "showValueLabels",
@@ -111,7 +162,8 @@ class LabelsCard extends formattingSettings.SimpleCard {
 
 class NotationCard extends formattingSettings.SimpleCard {
     name = "notation";
-    displayNameKey = "Visual_Object_Notation";
+    displayNameKey = "Visual_Object_IBCS";
+    collapsible = true;
 
     acColor = new formattingSettings.ColorPicker({
         name: "acColor",
@@ -152,7 +204,8 @@ class NotationCard extends formattingSettings.SimpleCard {
 
 class GridlinesCard extends formattingSettings.SimpleCard {
     name = "gridlines";
-    displayNameKey = "Visual_Object_Gridlines";
+    displayNameKey = "Visual_Object_Grid";
+    collapsible = true;
 
     show = new formattingSettings.ToggleSwitch({
         name: "show",
@@ -171,7 +224,8 @@ class GridlinesCard extends formattingSettings.SimpleCard {
 
 class SortCard extends formattingSettings.SimpleCard {
     name = "sortSettings";
-    displayNameKey = "Visual_Object_Sort";
+    displayNameKey = "Visual_Object_Sorting";
+    collapsible = true;
 
     field = new formattingSettings.AutoDropdown({
         name: "field",
@@ -191,6 +245,7 @@ class SortCard extends formattingSettings.SimpleCard {
 class TopNCard extends formattingSettings.SimpleCard {
     name = "topN";
     displayNameKey = "Visual_Object_TopN";
+    collapsible = true;
 
     mode = new formattingSettings.AutoDropdown({
         name: "mode",
@@ -221,6 +276,14 @@ class TopNCard extends formattingSettings.SimpleCard {
         displayNameKey: "Visual_Slice_TopNIncludeOthers",
         value: true
     });
+
+    onPreProcess(): void {
+        const mode = String(this.mode.value ?? "off");
+        this.count.visible = mode === "items";
+        this.percentage.visible = mode === "percentage";
+        this.rankBy.visible = mode !== "off";
+        this.includeOthers.visible = mode !== "off";
+    }
 
     slices = [this.mode, this.count, this.percentage, this.rankBy, this.includeOthers];
 }

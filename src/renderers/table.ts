@@ -7,7 +7,7 @@ import * as d3 from "d3";
 import powerbi from "powerbi-visuals-api";
 import { ScenarioKind, varianceColor } from "../ibcs";
 import { formatSigned, formatSignedPercent, measureText, truncateText } from "../helpers";
-import { RenderContext, bindInteractions, TooltipItem, clamp, configuredRowHeight, cycleSort, sortArrow, SortField, dataPointOpacity, dataPointKey, tween, ensureChild, computeTotals, totalsOpacity, nonSelectableId, Totals } from "./common";
+import { RenderContext, bindInteractions, TooltipItem, clamp, configuredRowHeight, cycleSort, sortArrow, SortField, dataPointOpacity, dataPointKey, tween, ensureChild, computeTotals, totalsOpacity, nonSelectableId, Totals, scenarioLabel } from "./common";
 
 export interface TableModel {
     rows: Array<{
@@ -35,6 +35,8 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
         return;
     }
     const baseKind = model.baseKind;
+    const acLabel = scenarioLabel(ctx, "AC");
+    const baseLabel = model.baseLabel || scenarioLabel(ctx, baseKind);
     let showBase = baseKind !== null;
     let showAbs = settings.variance.showDeltaAbs.value && showBase;
     let showPct = settings.variance.showDeltaPct.value && showBase;
@@ -42,7 +44,7 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
     const goodDirection = settings.variance.goodDirection.value as "up" | "down";
 
     const headerH = fontSize + 12;
-    const showTotals = settings.chart?.showTotals?.value === true && allRows.length > 0;
+    const showTotals = ctx.allowAggregation !== false && settings.chart?.showTotals?.value === true && allRows.length > 0;
     const configuredRowH = configuredRowHeight(ctx);
     const minRowH = configuredRowH || fontSize + 6;
     const initialBodyH = Math.max(0, height - headerH);
@@ -89,17 +91,17 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
     const cols: ColDef[] = [];
     let cursor = labelW;
     if (showBase) {
-        cols.push({ key: "base", header: baseKind as string, width: numericW, x: cursor });
+        cols.push({ key: "base", header: baseLabel, width: numericW, x: cursor });
         cursor += numericW;
     }
-    cols.push({ key: "ac", header: "AC", width: numericW, x: cursor });
+    cols.push({ key: "ac", header: acLabel, width: numericW, x: cursor });
     cursor += numericW;
     if (showAbs) {
-        cols.push({ key: "delta", header: `\u0394${baseKind}`, width: numericW, x: cursor });
+        cols.push({ key: "delta", header: `\u0394${baseLabel}`, width: numericW, x: cursor });
         cursor += numericW;
     }
     if (showPct) {
-        cols.push({ key: "pct", header: `\u0394${baseKind}%`, width: numericW, x: cursor });
+        cols.push({ key: "pct", header: `\u0394${baseLabel}%`, width: numericW, x: cursor });
     }
 
     // header row (ac / delta / pct headers are clickable for Zebra-style sorting)
@@ -283,16 +285,16 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
                     value: d.categoryLabel || d.label
                 }];
                 if (showBase && d.base !== null) {
-                    list.push({ displayName: model.baseLabel, value: formatter(d.base) });
+                    list.push({ displayName: baseLabel, value: formatter(d.base) });
                 }
                 if (d.ac !== null) {
-                    list.push({ displayName: "AC", value: formatter(d.ac) });
+                    list.push({ displayName: acLabel, value: formatter(d.ac) });
                 }
                 if (d.delta !== null) {
-                    list.push({ displayName: `\u0394${baseKind}`, value: formatSigned(formatter, d.delta) });
+                    list.push({ displayName: `\u0394${baseLabel}`, value: formatSigned(formatter, d.delta) });
                 }
                 if (d.deltaPct !== null) {
-                    list.push({ displayName: `\u0394${baseKind}%`, value: formatSignedPercent(d.deltaPct) });
+                    list.push({ displayName: `\u0394${baseLabel}%`, value: formatSignedPercent(d.deltaPct) });
                 }
 
                 return list.concat(d.tooltipExtra);
@@ -368,16 +370,16 @@ export function renderTable(ctx: RenderContext, model: TableModel): void {
                 const items = (): TooltipItem[] => {
                     const list: TooltipItem[] = [];
                     if (showBase && t.base !== null) {
-                        list.push({ displayName: model.baseLabel, value: formatter(t.base) });
+                        list.push({ displayName: baseLabel, value: formatter(t.base) });
                     }
                     if (t.ac !== null) {
-                        list.push({ displayName: "AC", value: formatter(t.ac) });
+                        list.push({ displayName: acLabel, value: formatter(t.ac) });
                     }
                     if (t.delta !== null) {
-                        list.push({ displayName: `\u0394${baseKind}`, value: formatSigned(formatter, t.delta) });
+                        list.push({ displayName: `\u0394${baseLabel}`, value: formatSigned(formatter, t.delta) });
                     }
                     if (t.deltaPct !== null) {
-                        list.push({ displayName: `\u0394${baseKind}%`, value: formatSignedPercent(t.deltaPct) });
+                        list.push({ displayName: `\u0394${baseLabel}%`, value: formatSignedPercent(t.deltaPct) });
                     }
 
                     return list;

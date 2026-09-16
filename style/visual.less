@@ -3,31 +3,52 @@ p {
 }
 
 .ibcsCharts {
+    position: relative;
+    --ibcs-text: #333333;
+    --ibcs-muted: #666666;
+    --ibcs-focus: #118DFF;
     font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
     user-select: none;
+    shape-rendering: geometricPrecision;
 
     svg {
         display: block;
     }
 
     [tabindex="0"]:focus {
-        outline: 2px solid currentColor;
-        outline-offset: 2px;
+        outline: 2px solid var(--ibcs-focus);
+        outline-offset: 3px;
     }
 
     text {
         font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
-        fill: #333333;
+        text-rendering: geometricPrecision;
     }
 
     .ibcs-landing-title {
         font-size: 16px;
         font-weight: 600;
-        fill: #333333;
+        fill: var(--ibcs-text);
     }
 
     .ibcs-landing-body {
         font-size: 12px;
-        fill: #666666;
+        fill: var(--ibcs-muted);
+    }
+
+    .ibcs-header text,
+    .ibcs-vheader text,
+    .ibcs-thead text {
+        letter-spacing: .02em;
+    }
+
+    .ibcs-sep,
+    .ibcs-thead-rule,
+    .ibcs-header-rule {
+        vector-effect: non-scaling-stroke;
+    }
+
+    svg[data-high-contrast="true"] {
+        --ibcs-focus: currentColor;
     }
 }

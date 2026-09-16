@@ -14,7 +14,7 @@ import * as d3 from "d3";
 import powerbi from "powerbi-visuals-api";
 import { ScenarioKind, varianceColor, ensureHatchPattern } from "../ibcs";
 import { formatSigned, formatSignedPercent, measureText, truncateText } from "../helpers";
-import { RenderContext, bindInteractions, TooltipItem, clamp, configuredRowHeight, cycleSort, sortArrow, SortField, dataPointOpacity, dataPointKey, tween, ensureChild, computeTotals, totalsOpacity, nonSelectableId, Totals, detectOutlierLimit, isOutlierValue } from "./common";
+import { RenderContext, bindInteractions, TooltipItem, clamp, configuredRowHeight, cycleSort, sortArrow, SortField, dataPointOpacity, dataPointKey, tween, ensureChild, computeTotals, totalsOpacity, nonSelectableId, Totals, detectOutlierLimit, isOutlierValue, scenarioLabel } from "./common";
 
 export interface VarianceRow {
     label: string;
@@ -42,6 +42,8 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
 
     const allRows = model.rows;
     const baseKind = model.baseKind;
+    const acLabel = scenarioLabel(ctx, "AC");
+    const baseLabel = model.baseLabel || scenarioLabel(ctx, baseKind);
     let showAbs = settings.variance.showDeltaAbs.value && baseKind !== null;
     let showPct = settings.variance.showDeltaPct.value && baseKind !== null;
     const colorMode = settings.variance.colorMode.value as "semantic" | "neutral";
@@ -50,7 +52,7 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
 
     const headerH = fontSize + 12;
     const bottomPad = 4;
-    const showTotals = settings.chart?.showTotals?.value === true && allRows.length > 0;
+    const showTotals = ctx.allowAggregation !== false && settings.chart?.showTotals?.value === true && allRows.length > 0;
     const configuredRowH = configuredRowHeight(ctx);
     const minRowH = configuredRowH || Math.max(14, fontSize + 4);
     const initialRowArea = Math.max(0, height - headerH - bottomPad);
@@ -111,7 +113,9 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
     const normalRows = hasOutlier ? rows.filter((r) => !isOutlierValue(r.ac, outlierLimit)) : rows;
 
     const maxAc = d3.max(rows, (r) => (r.ac !== null && r.ac > 0 ? r.ac : 0)) ?? 0;
-    const normalMaxAc = hasOutlier ? outlierLimit : maxAc;
+    const totalAc = showTotals ? computeTotals(allRows).ac : null;
+    const normalMaxAc = hasOutlier ? outlierLimit : Math.max(maxAc, totalAc ?? 0);
+    const minAc = Math.min(0, totalAc ?? 0, d3.min(rows, (r) => r.ac ?? 0) ?? 0);
     const deltas = normalRows.map((r) => r.delta).filter((d): d is number => d !== null);
     const maxPos = d3.max(deltas.filter((d) => d > 0)) ?? 0;
     const maxNeg = d3.max(deltas.filter((d) => d < 0).map((d) => -d)) ?? 0;
@@ -120,7 +124,11 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
     const hasNegPct = pcts.some((p) => p < 0);
 
     const acRange = wAc * 0.72; // reserve room for outside labels
-    const acScale = normalMaxAc > 0 ? acRange / normalMaxAc : 0;
+    const acScale = d3.scaleLinear().domain([minAc, normalMaxAc > minAc ? normalMaxAc : minAc + 1])
+        .range([xAc, xAc + acRange]);
+    const zeroAc = acScale(0);
+    const acEnd = (value: number | null): number => acScale(Math.min(value ?? 0, outlierLimit));
+    const acWidth = (value: number | null): number => value === null ? 0 : Math.max(value === 0 ? 1 : 1.5, Math.abs(acEnd(value) - zeroAc));
 
     /** Two slanted hairlines marking a truncated (broken) bar. */
     const drawBreakMarks = (
@@ -163,13 +171,13 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
         }
     }
     const headerItems: Array<{ x: number; text: string; sort: SortField }> = [
-        { x: xAc, text: `AC${sortField === "ac" ? sortArrow(ctx, "ac") : acAutoArrow}`, sort: "ac" }
+        { x: xAc, text: `${acLabel}${sortField === "ac" ? sortArrow(ctx, "ac") : acAutoArrow}`, sort: "ac" }
     ];
     if (showAbs) {
-        headerItems.push({ x: xAbs, text: `\u0394${baseKind}${sortArrow(ctx, "delta")}`, sort: "delta" });
+        headerItems.push({ x: xAbs, text: `\u0394${baseLabel}${sortArrow(ctx, "delta")}`, sort: "delta" });
     }
     if (showPct) {
-        headerItems.push({ x: xPct, text: `\u0394${baseKind}%${sortArrow(ctx, "deltaPct")}`, sort: "deltaPct" });
+        headerItems.push({ x: xPct, text: `\u0394${baseLabel}%${sortArrow(ctx, "deltaPct")}`, sort: "deltaPct" });
     }
     const header = svg
         .selectAll<SVGGElement, unknown>("g.ibcs-header")
@@ -278,21 +286,25 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
 
     // --- AC panel ---
     const barH = clamp(Math.round(rowH * 0.44), 7, 40);
+    bodyMerged.selectAll<SVGLineElement, number>("line.ibcs-axis-ac")
+        .data(minAc < 0 ? [zeroAc] : []).join("line").attr("class", "ibcs-axis-ac")
+        .attr("x1", zeroAc).attr("x2", zeroAc).attr("y1", 0)
+        .attr("y2", rowH * (rows.length + (showTotals ? 1 : 0)))
+        .attr("stroke", colors.outline).attr("stroke-width", 0.75);
     rowSel
         .select<SVGRectElement>("rect.ibcs-ac-bar")
-        .attr("x", xAc)
+        .attr("x", (d) => Math.min(zeroAc, acEnd(d.ac)))
         .attr("y", (rowH - barH) / 2)
         .attr("height", barH)
         .attr("fill", colors.ac)
         .attr("opacity", (d) => dataPointOpacity(ctx, d.selectionId, d.highlighted))
         .each(function (d) {
             const truncated = isOutlierValue(d.ac, outlierLimit);
-            const shown = d.ac !== null && d.ac > 0 ? Math.min(d.ac, outlierLimit) : 0;
-            const w = Math.max(1.5, shown * acScale);
+            const w = acWidth(d.ac);
             tween(ctx, d3.select(this)).attr("width", w);
             const rowGroup = d3.select(this.parentNode as SVGGElement);
             if (truncated) {
-                drawBreakMarks(rowGroup, ".ibcs-break", xAc + w, (rowH - barH) / 2, barH);
+                drawBreakMarks(rowGroup, ".ibcs-break", acEnd(d.ac), (rowH - barH) / 2, barH);
             } else {
                 rowGroup.select(".ibcs-break").remove();
             }
@@ -305,12 +317,12 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
             return;
         }
         const row = d3.select(this);
-        const barW = Math.max(1.5, Math.min(d.ac as number, outlierLimit) * acScale);
+        const rightEdge = Math.max(zeroAc, acEnd(d.ac));
         const text = formatter(d.ac as number);
         const textW = measureText(text, fontSize - 1);
-        const fitsOutside = xAc + barW + 5 + textW <= xAc + wAc - 2;
+        const fitsOutside = rightEdge + 5 + textW <= xAc + wAc - 2;
         ensureChild<SVGTextElement>(row, ".ibcs-ac-value", "text", "ibcs-ac-value")
-            .attr("x", fitsOutside ? xAc + barW + 5 : xAc + barW - 4)
+            .attr("x", fitsOutside ? rightEdge + 5 : rightEdge - 4)
             .attr("y", rowH / 2)
             .attr("dy", "0.35em")
             .attr("text-anchor", fitsOutside ? "start" : "end")
@@ -349,7 +361,7 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
             .attr("x2", zeroXD)
             .attr("y1", 2)
             .attr("y2", rowH * rows.length - 2)
-            .attr("stroke", "#BFBFBF")
+            .attr("stroke", colors.outline)
             .attr("stroke-width", 1);
 
         rowSel.each(function (d) {
@@ -423,7 +435,7 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
             .attr("x2", zeroX)
             .attr("y1", 2)
             .attr("y2", rowH * rows.length - 2)
-            .attr("stroke", "#BFBFBF")
+            .attr("stroke", colors.outline)
             .attr("stroke-width", 1);
 
         rowSel.each(function (d) {
@@ -484,16 +496,16 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
                     value: d.categoryLabel || d.label
                 }];
                 if (d.ac !== null) {
-                    items.push({ displayName: "AC", value: formatter(d.ac) });
+                    items.push({ displayName: acLabel, value: formatter(d.ac) });
                 }
                 if (baseKind && d.base !== null) {
-                    items.push({ displayName: model.baseLabel, value: formatter(d.base) });
+                    items.push({ displayName: baseLabel, value: formatter(d.base) });
                 }
                 if (d.delta !== null) {
-                    items.push({ displayName: `\u0394${baseKind}`, value: formatSigned(formatter, d.delta) });
+                    items.push({ displayName: `\u0394${baseLabel}`, value: formatSigned(formatter, d.delta) });
                 }
                 if (d.deltaPct !== null) {
-                    items.push({ displayName: `\u0394${baseKind}%`, value: formatSignedPercent(d.deltaPct) });
+                    items.push({ displayName: `\u0394${baseLabel}%`, value: formatSignedPercent(d.deltaPct) });
                 }
 
                 return items.concat(d.tooltipExtra);
@@ -536,10 +548,9 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
             .attr("opacity", opacity)
             .text(totalLabel);
 
-        const totalShown = t.ac !== null && t.ac > 0 ? Math.min(t.ac, outlierLimit) : 0;
-        const totalBarW = Math.min(Math.max(1.5, totalShown * acScale), wAc * 0.9);
+        const totalBarW = acWidth(t.ac);
         ensureChild<SVGRectElement>(totalsMerged, ".ibcs-total-ac-bar", "rect", "ibcs-total-ac-bar")
-            .attr("x", xAc)
+            .attr("x", Math.min(zeroAc, acEnd(t.ac)))
             .attr("y", (rowH - barH) / 2)
             .attr("height", barH)
             .attr("fill", colors.ac)
@@ -548,13 +559,13 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
                 tween(ctx, d3.select(this)).attr("width", totalBarW);
             });
         if (t.ac !== null && isOutlierValue(t.ac, outlierLimit)) {
-            drawBreakMarks(totalsMerged, ".ibcs-total-break", xAc + totalBarW, (rowH - barH) / 2, barH);
+            drawBreakMarks(totalsMerged, ".ibcs-total-break", acEnd(t.ac), (rowH - barH) / 2, barH);
         } else {
             totalsMerged.select(".ibcs-total-break").remove();
         }
         if (showLabels && t.ac !== null) {
             ensureChild<SVGTextElement>(totalsMerged, ".ibcs-total-ac-value", "text", "ibcs-total-ac-value")
-                .attr("x", xAc + totalBarW + 5)
+                .attr("x", Math.max(zeroAc, acEnd(t.ac)) + 5)
                 .attr("y", rowH / 2)
                 .attr("dy", "0.35em")
                 .attr("font-size", fontSize - 1)
@@ -644,16 +655,16 @@ export function renderVarianceChart(ctx: RenderContext, model: VarianceModel): v
                 const tooltipItems = (): TooltipItem[] => {
                     const items: TooltipItem[] = [];
                     if (t.ac !== null) {
-                        items.push({ displayName: "AC", value: formatter(t.ac) });
+                        items.push({ displayName: acLabel, value: formatter(t.ac) });
                     }
                     if (baseKind && t.base !== null) {
-                        items.push({ displayName: model.baseLabel, value: formatter(t.base) });
+                        items.push({ displayName: baseLabel, value: formatter(t.base) });
                     }
                     if (t.delta !== null) {
-                        items.push({ displayName: `\u0394${baseKind}`, value: formatSigned(formatter, t.delta) });
+                        items.push({ displayName: `\u0394${baseLabel}`, value: formatSigned(formatter, t.delta) });
                     }
                     if (t.deltaPct !== null) {
-                        items.push({ displayName: `\u0394${baseKind}%`, value: formatSignedPercent(t.deltaPct) });
+                        items.push({ displayName: `\u0394${baseLabel}%`, value: formatSignedPercent(t.deltaPct) });
                     }
 
                     return items;

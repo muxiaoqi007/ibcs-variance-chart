@@ -54,6 +54,7 @@ export interface ParseOutput {
     measureNames: Partial<Record<ScenarioKind, string>>;
     /** True when Power BI delivered highlight values (cross-visual selection active). */
     hasHighlight: boolean;
+    mixedInput: boolean;
 }
 
 const CANON_ORDER: ScenarioKind[] = ["PY", "PL", "FC", "AC", "UNKNOWN"];
@@ -274,10 +275,11 @@ export function parseDataView(
         scenarioSource: hasDedicated ? "measures" : "dimension",
         present,
         scenarioDisplay,
-        valueFormat: valueCol?.source.format ?? dedicated[0]?.col.source.format,
+        valueFormat: hasDedicated ? dedicated[0]?.col.source.format : valueCol?.source.format,
         tooltipFields: tooltipCols.map((c) => ({ name: c.source.displayName, format: c.source.format })),
         measureNames,
-        hasHighlight: highlightActive
+        hasHighlight: highlightActive,
+        mixedInput: hasDedicated && (!!scenarioCol || !!valueCol)
     };
 }
 

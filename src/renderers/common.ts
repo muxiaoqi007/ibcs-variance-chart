@@ -3,7 +3,7 @@
 import * as d3 from "d3";
 import powerbi from "powerbi-visuals-api";
 import { ITooltipServiceWrapper } from "powerbi-visuals-utils-tooltiputils";
-import { NotationColors } from "../ibcs";
+import { NotationColors, ScenarioKind } from "../ibcs";
 import { VisualFormattingSettingsModel } from "../settings";
 import { Formatter } from "../helpers";
 
@@ -29,6 +29,27 @@ export interface RenderContext {
     animate: boolean;
     /** True when Power BI delivered highlight values for this update. */
     highlightActive: boolean;
+    allowAggregation?: boolean;
+    scenarioNames?: Partial<Record<ScenarioKind, string>>;
+}
+
+/** User-facing scenario name. Semantic scenario keys remain unchanged. */
+export function scenarioLabel(ctx: RenderContext, kind: ScenarioKind | null): string {
+    if (!kind) {
+        return "";
+    }
+    const configured: Partial<Record<ScenarioKind, unknown>> = {
+        AC: ctx.settings.scenarios?.acLabel?.value,
+        PY: ctx.settings.scenarios?.pyLabel?.value,
+        PL: ctx.settings.scenarios?.plLabel?.value,
+        FC: ctx.settings.scenarios?.fcLabel?.value
+    };
+    const label = String(configured[kind] ?? "").trim();
+    if ((!label || label === kind) && ctx.settings.scenarios?.useDataLabels?.value && ctx.scenarioNames?.[kind]) {
+        return ctx.scenarioNames[kind] as string;
+    }
+
+    return label || kind;
 }
 
 /** Resolve the user-configured row height. Zero/missing means auto-fit. */

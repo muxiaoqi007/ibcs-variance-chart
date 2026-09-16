@@ -21,7 +21,7 @@ import { VisualFormattingSettingsModel } from "./settings";
 import { DEFAULT_COLORS, NotationColors, ScenarioKind } from "./ibcs";
 import { parseDataView, ParseOutput, resolveBaseScenario } from "./dataModel";
 import { createFormatter, Formatter, isNumeric } from "./helpers";
-import { RenderContext, ChartMode, TooltipItem, clamp } from "./renderers/common";
+import { RenderContext, ChartMode, TooltipItem, clamp, scenarioLabel } from "./renderers/common";
 import { renderVarianceChart, VarianceModel } from "./renderers/varianceChart";
 import { renderVerticalVarianceChart } from "./renderers/verticalChart";
 import { renderTimeSeries, TimeSeriesModel } from "./renderers/timeSeries";
@@ -49,6 +49,8 @@ export class Visual implements IVisual {
     private lastRender: (() => void) | null = null;
     /** Identifies the current scene; the SVG is cleared only when it changes. */
     private sceneKey: string | null = null;
+    /** True while a segment fetch triggered from update() is in flight. */
+    private fetchingMore = false;
 
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
@@ -83,6 +85,7 @@ export class Visual implements IVisual {
     }
 
     public update(options: VisualUpdateOptions): void {
+        this.root.selectAll(".ibcs-input-notice").remove();
         const { width, height } = options.viewport;
         if (width < 60 || height < 40) {
             return;
@@ -101,6 +104,20 @@ export class Visual implements IVisual {
             // VisualUpdateType.Data is bit 1 of the update-type bitmask.
             const updateType = Number(options.type ?? 0);
             this.animate = (updateType & 1) !== 0;
+
+            // Categories are delivered through a capped data reduction window;
+            // keep requesting the remaining segments (aggregated mode) so
+            // totals, Top N "Others" and ranking see every row. The request
+            // goes out before parsing so a synchronous host reply is picked
+            // up by the parse below.
+            if (dataView?.metadata?.segment && typeof this.host.fetchMoreData === "function" && !this.fetchingMore) {
+                this.fetchingMore = true;
+                try {
+                    this.host.fetchMoreData(true);
+                } finally {
+                    this.fetchingMore = false;
+                }
+            }
 
             const parsed = parseDataView(dataView, this.host);
             if (!parsed) {
@@ -195,7 +212,8 @@ export class Visual implements IVisual {
             outline: this.getColor(this.formattingModel.notation.outlineColor.value, DEFAULT_COLORS.outline),
             positive: this.getColor(this.formattingModel.variance.positiveColor.value, DEFAULT_COLORS.positive),
             negative: this.getColor(this.formattingModel.variance.negativeColor.value, DEFAULT_COLORS.negative),
-            grid: this.getColor(this.formattingModel.gridlines.color.value, DEFAULT_COLORS.grid)
+            grid: this.getColor(this.formattingModel.gridlines.color.value, DEFAULT_COLORS.grid),
+            text: palette.foreground?.value || DEFAULT_COLORS.text
         };
     }
 
@@ -219,6 +237,9 @@ export class Visual implements IVisual {
             .attr("height", height)
             .attr("role", "img")
             .attr("aria-label", this.localizationManager.getDisplayName("Visual_AriaDescription"));
+        this.svg
+            .attr("data-mode", mode)
+            .attr("data-high-contrast", this.host.colorPalette.isHighContrast ? "true" : "false");
 
         const hasRows = parsed.rows.length > 0 || (parsed.timeRows?.length ?? 0) > 0;
         if (!hasRows) {
@@ -227,12 +248,29 @@ export class Visual implements IVisual {
         }
 
         const colors = this.resolveColors();
+        this.svg.style("--ibcs-text", colors.text)
+            .style("--ibcs-muted", colors.text)
+            .style("color", colors.text);
         const fontSize = clamp(settings.labels.fontSize.value || 11, 8, 24);
-        const baseLabel = (baseKind && parsed.scenarioDisplay[baseKind]) || baseKind || "";
+        const aggregation = String(settings.chart.aggregation.value ?? "auto");
+        const allowAggregation = aggregation === "sum" || (aggregation === "auto" && !parsed.valueFormat?.includes("%"));
+        const notices = [
+            parsed.mixedInput ? "Visual_MixedInput" : "",
+            !allowAggregation ? "Visual_NoAggregation" : ""
+        ].filter(Boolean);
+        const notice = this.root.selectAll<HTMLDivElement, string>("div.ibcs-input-notice")
+            .data(notices.length ? [notices.map((key) => this.localizationManager.getDisplayName(key)).join(" ")] : [])
+            .join("div").attr("class", "ibcs-input-notice").attr("role", "status")
+            .style("font-size", "11px").style("color", colors.text)
+            .text((text) => text);
+        notice.style("position", "absolute").style("bottom", "0").style("left", "4px")
+            .style("right", "4px").style("max-height", "34px").style("overflow", "auto")
+            .style("background", this.host.colorPalette.isHighContrast ? this.host.colorPalette.background.value : "white");
+        const chartHeight = Math.max(0, height - (notices.length ? 38 : 0));
 
         const topNRows = mode === "timeseries"
             ? parsed.rows
-            : this.applyTopN(parsed.rows, baseKind);
+            : this.applyTopN(parsed.rows, baseKind, allowAggregation);
 
         // Zebra-BI-style sorting (persisted via header clicks / formatting pane).
         const sortedRows = this.sortRows(
@@ -279,7 +317,7 @@ export class Visual implements IVisual {
         const ctx: RenderContext = {
             svg: this.svg,
             width,
-            height,
+            height: chartHeight,
             host: this.host,
             settings,
             colors,
@@ -291,8 +329,11 @@ export class Visual implements IVisual {
             localization: this.localizationManager,
             onInteraction: () => this.redraw(),
             animate: this.animate,
-            highlightActive: parsed.hasHighlight
+            highlightActive: parsed.hasHighlight,
+            allowAggregation,
+            scenarioNames: { ...parsed.scenarioDisplay, ...parsed.measureNames }
         };
+        const baseLabel = scenarioLabel(ctx, baseKind);
 
         if (mode !== "timeseries" && comparisonKinds.length > 1) {
             this.renderComparisonPanels(ctx, parsed, comparisonKinds, mode, buildTooltipExtra);
@@ -363,7 +404,7 @@ export class Visual implements IVisual {
         return sorted.concat(others);
     }
 
-    private applyTopN(rows: ParseOutput["rows"], baseKind: ScenarioKind | null): ParseOutput["rows"] {
+    private applyTopN(rows: ParseOutput["rows"], baseKind: ScenarioKind | null, allowAggregation = true): ParseOutput["rows"] {
         const settings = this.formattingModel.topN;
         const mode = String(settings.mode.value ?? "off");
         if (mode === "off" || rows.length <= 1) {
@@ -405,20 +446,16 @@ export class Visual implements IVisual {
             return ranked;
         }
         const visible = ranked.slice(0, take);
-        if (!settings.includeOthers.value) {
+        if (!settings.includeOthers.value || !allowAggregation) {
             return visible;
         }
 
         const hidden = ranked.slice(take);
         const values: Partial<Record<ScenarioKind, number>> = {};
         const tooltipLength = Math.max(0, ...hidden.map((row) => row.tooltipRaw.length));
-        const tooltipRaw = Array.from({ length: tooltipLength }, (_value, index) => {
-            const values = hidden
-                .map((row) => row.tooltipRaw[index])
-                .filter((value): value is number => value !== null && Number.isFinite(value));
-
-            return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) : null;
-        });
+        // The host has not evaluated these measures in the Others filter context.
+        // Rates, averages and distinct counts cannot safely be summed here.
+        const tooltipRaw = Array.from({ length: tooltipLength }, () => null);
         for (const row of hidden) {
             for (const [kind, value] of Object.entries(row.values) as Array<[ScenarioKind, number]>) {
                 values[kind] = (values[kind] ?? 0) + value;
@@ -448,7 +485,12 @@ export class Visual implements IVisual {
         const gap = 4;
         const panelHeight = Math.max(1, (ctx.height - gap * (baseKinds.length - 1)) / baseKinds.length);
         // Keep the same category set in every panel so comparisons remain aligned.
-        const sharedRows = this.applyTopN(parsed.rows, baseKinds[0]);
+        const primaryBase = resolveBaseScenario(String(ctx.settings.scenarios.baseScenario.value), parsed.present) ?? baseKinds[0];
+        const sharedRows = this.sortRows(
+            this.applyTopN(parsed.rows, primaryBase, ctx.allowAggregation), primaryBase,
+            String(ctx.settings.sortSettings.field.value ?? "none"),
+            String(ctx.settings.sortSettings.direction.value ?? "desc")
+        );
         // Panels are keyed by base scenario so their subtrees are reused.
         const panels = ctx.svg
             .selectAll<SVGSVGElement, ScenarioKind>("svg.ibcs-comparison-panel")
@@ -484,14 +526,9 @@ export class Visual implements IVisual {
         panels.each((baseKind, index, nodes) => {
             const panelSvg = d3.select(nodes[index]);
             const panelCtx: RenderContext = { ...ctx, svg: panelSvg, height: panelHeight };
-            const rows = this.sortRows(
-                sharedRows,
-                baseKind,
-                String(ctx.settings.sortSettings.field.value ?? "none"),
-                String(ctx.settings.sortSettings.direction.value ?? "desc")
-            );
+            const rows = sharedRows;
             const panelParsed: ParseOutput = { ...parsed, rows };
-            const baseLabel = parsed.scenarioDisplay[baseKind] || baseKind;
+            const baseLabel = scenarioLabel(panelCtx, baseKind);
 
             if (mode === "variance" || mode === "vertical") {
                 this.renderVarianceMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra, mode === "vertical");
@@ -573,6 +610,12 @@ export class Visual implements IVisual {
         const totalLabel = this.localizationManager.getDisplayName("Visual_Total");
         const columns: WaterfallColumn[] = [];
         const emptyId = () => this.host.createSelectionIdBuilder().createSelectionId();
+        if (ctx.allowAggregation === false) {
+            ctx.svg.selectAll("*").remove();
+            ctx.svg.append("text").attr("x", 8).attr("y", 24).attr("fill", ctx.colors.text)
+                .attr("font-size", ctx.fontSize).text(this.localizationManager.getDisplayName("Visual_WaterfallRequiresSum"));
+            return;
+        }
 
         if (baseKind) {
             let baseTotal = 0;
@@ -581,25 +624,30 @@ export class Visual implements IVisual {
             for (const r of parsed.rows) {
                 const ac = r.values.AC;
                 const base = r.values[baseKind];
-                if (ac === undefined || base === undefined) {
+                baseTotal += base ?? 0;
+                acTotal += ac ?? 0;
+                if (ac === undefined && base === undefined) {
                     continue;
                 }
-                baseTotal += base;
-                acTotal += ac;
+                const incomplete = ac === undefined || base === undefined;
                 steps.push({
                     type: "step",
-                    label: r.label,
-                    value: ac - base,
+                    label: incomplete ? `${r.label} *` : r.label,
+                    value: (ac ?? 0) - (base ?? 0),
+                    incomplete,
                     selectionId: r.selectionId,
                     selectionIds: r.selectionIds,
                     highlighted: r.highlighted,
-                    tooltipExtra: buildTooltipExtra(r.tooltipRaw)
+                    tooltipExtra: incomplete ? [{
+                        displayName: this.localizationManager.getDisplayName("Visual_MissingComparison"),
+                        value: this.localizationManager.getDisplayName("Visual_MissingComparisonDetail")
+                    }, ...buildTooltipExtra(r.tooltipRaw)] : buildTooltipExtra(r.tooltipRaw)
                 });
             }
             const totalsHighlighted = steps.some((step) => step.highlighted);
-            columns.push({ type: "start", label: baseKind, value: baseTotal, selectionId: emptyId(), highlighted: totalsHighlighted, tooltipExtra: [] });
+            columns.push({ type: "start", label: scenarioLabel(ctx, baseKind), value: baseTotal, selectionId: emptyId(), highlighted: totalsHighlighted, tooltipExtra: [] });
             columns.push(...steps);
-            columns.push({ type: "end", label: "AC", value: acTotal, selectionId: emptyId(), highlighted: totalsHighlighted, tooltipExtra: [] });
+            columns.push({ type: "end", label: scenarioLabel(ctx, "AC"), value: acTotal, selectionId: emptyId(), highlighted: totalsHighlighted, tooltipExtra: [] });
         } else {
             let total = 0;
             for (const r of parsed.rows) {
@@ -687,8 +735,8 @@ export class Visual implements IVisual {
             .attr("x", width / 2)
             .attr("y", height / 2 - 14)
             .attr("text-anchor", "middle")
-            .attr("fill", "#D13438")
-            .text("Render error");
+            .style("fill", "var(--ibcs-text, currentColor)")
+            .text(this.localizationManager.getDisplayName("Visual_RenderError"));
         g.append("text")
             .attr("class", "ibcs-landing-body")
             .attr("x", width / 2)

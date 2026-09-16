@@ -179,6 +179,60 @@ export function topNDataView(mode: "items" | "percentage", limit: number): Recor
     };
 }
 
+/**
+ * Simulates a segmented (fetchMoreData) data view: `first` is the truncated
+ * window carrying `metadata.segment`, `full` the accumulated complete result.
+ */
+export function segmentedDataView(totalCount: number, visibleCount: number): {
+    first: Record<string, unknown>;
+    full: Record<string, unknown>;
+} {
+    const make = (count: number, offset: number, segment: boolean): Record<string, unknown> => {
+        const categoryCol = {
+            identity: [],
+            source: { displayName: "Category", roles: { category: true } },
+            values: Array.from({ length: count }, (_v, i) => `Item ${offset + i + 1}`)
+        };
+        const acCol = {
+            source: { displayName: "AC", roles: { ac: true } },
+            values: Array.from({ length: count }, (_v, i) => 10 - (offset + i) * 0.1)
+        };
+        const pyCol = {
+            source: { displayName: "PY", roles: { py: true } },
+            values: Array.from({ length: count }, () => 5)
+        };
+
+        return {
+            metadata: {
+                columns: [categoryCol.source, acCol.source, pyCol.source],
+                ...(segment ? { segment: true } : {})
+            },
+            categorical: { categories: [categoryCol], values: [acCol, pyCol] }
+        };
+    };
+
+    return {
+        first: make(visibleCount, 0, true),
+        full: make(totalCount, 0, false)
+    };
+}
+
+/**
+ * Installs a fetchMoreData spy that records the requested aggregation flag
+ * and returns true (PBI delivers the accumulated dataView in a subsequent
+ * update call, which the test drives explicitly).
+ */
+export function withSegmentFetch(host: Record<string, unknown>): { requests: boolean[] } {
+    const requests: boolean[] = [];
+    (host as { fetchMoreData?: unknown }).fetchMoreData = (aggregate: boolean) => {
+        requests.push(aggregate === true);
+
+        return true;
+    };
+
+    return { requests };
+}
+
 /** Attach highlight arrays so only `highlightedIndexes` rows stay lit. */
 export function withHighlights(dv: Record<string, unknown>, highlightedIndexes: number[]): Record<string, unknown> {
     const categorical = dv.categorical as { values: Array<Record<string, unknown>> };
@@ -193,6 +247,19 @@ export function withMode(dv: Record<string, unknown>, mode: string): Record<stri
     const metadata = dv.metadata as Record<string, unknown>;
     // Real Power BI dataViews carry evaluated literals in metadata.objects.
     metadata.objects = { ...(metadata.objects as Record<string, unknown> ?? {}), chart: { mode } };
+
+    return dv;
+}
+
+export function withScenarioLabels(
+    dv: Record<string, unknown>,
+    labels: { acLabel?: string; pyLabel?: string; plLabel?: string; fcLabel?: string }
+): Record<string, unknown> {
+    const metadata = dv.metadata as Record<string, unknown>;
+    metadata.objects = {
+        ...(metadata.objects as Record<string, unknown> ?? {}),
+        scenarios: labels
+    };
 
     return dv;
 }

@@ -14,7 +14,7 @@
 import * as d3 from "d3";
 import { scenarioStyle, applyBarStyle, varianceColor, ensureHatchPattern } from "../ibcs";
 import { formatSigned, formatSignedPercent, measureText, truncateText } from "../helpers";
-import { RenderContext, bindInteractions, TooltipItem, clamp, cycleSort, sortArrow, SortField, dataPointOpacity, dataPointKey, tween, ensureChild } from "./common";
+import { RenderContext, bindInteractions, TooltipItem, clamp, cycleSort, sortArrow, SortField, dataPointOpacity, dataPointKey, tween, ensureChild, scenarioLabel } from "./common";
 import { VarianceModel, VarianceRow } from "./varianceChart";
 
 export function renderVerticalVarianceChart(ctx: RenderContext, model: VarianceModel): void {
@@ -23,6 +23,8 @@ export function renderVerticalVarianceChart(ctx: RenderContext, model: VarianceM
 
     const allRows = model.rows;
     const baseKind = model.baseKind;
+    const acLabel = scenarioLabel(ctx, "AC");
+    const baseLabel = model.baseLabel || scenarioLabel(ctx, baseKind);
     let showAbs = settings.variance.showDeltaAbs.value && baseKind !== null;
     let showPct = settings.variance.showDeltaPct.value && baseKind !== null;
     const colorMode = settings.variance.colorMode.value as "semantic" | "neutral";
@@ -75,13 +77,13 @@ export function renderVerticalVarianceChart(ctx: RenderContext, model: VarianceM
     // --- headers (clickable for Zebra-style sorting) ---
     const sortField = String(settings.sortSettings.field.value ?? "none");
     const headerItems: Array<{ x: number; text: string; sort: SortField }> = [
-        { x: xAc, text: `AC${sortField === "ac" ? sortArrow(ctx, "ac") : ""}`, sort: "ac" }
+        { x: xAc, text: `${acLabel}${sortField === "ac" ? sortArrow(ctx, "ac") : ""}`, sort: "ac" }
     ];
     if (showAbs) {
-        headerItems.push({ x: xAbs, text: `\u0394${baseKind}${sortArrow(ctx, "delta")}`, sort: "delta" });
+        headerItems.push({ x: xAbs, text: `\u0394${baseLabel}${sortArrow(ctx, "delta")}`, sort: "delta" });
     }
     if (showPct) {
-        headerItems.push({ x: xPct, text: `\u0394${baseKind}%${sortArrow(ctx, "deltaPct")}`, sort: "deltaPct" });
+        headerItems.push({ x: xPct, text: `\u0394${baseLabel}%${sortArrow(ctx, "deltaPct")}`, sort: "deltaPct" });
     }
     const header = svg
         .selectAll<SVGGElement, unknown>("g.ibcs-vheader")
@@ -262,7 +264,7 @@ export function renderVerticalVarianceChart(ctx: RenderContext, model: VarianceM
             .attr("x2", xAbs + wAbs)
             .attr("y1", zeroYAbs)
             .attr("y2", zeroYAbs)
-            .attr("stroke", "#BFBFBF")
+            .attr("stroke", colors.outline)
             .attr("stroke-width", 1);
 
         colSel.each(function (d) {
@@ -323,7 +325,7 @@ export function renderVerticalVarianceChart(ctx: RenderContext, model: VarianceM
             .attr("x2", xPct + wPct)
             .attr("y1", zeroYPct)
             .attr("y2", zeroYPct)
-            .attr("stroke", "#BFBFBF")
+            .attr("stroke", colors.outline)
             .attr("stroke-width", 1);
 
         colSel.each(function (d) {
@@ -382,16 +384,16 @@ export function renderVerticalVarianceChart(ctx: RenderContext, model: VarianceM
                     value: d.categoryLabel || d.label
                 }];
                 if (d.ac !== null) {
-                    items.push({ displayName: "AC", value: formatter(d.ac) });
+                    items.push({ displayName: acLabel, value: formatter(d.ac) });
                 }
                 if (baseKind && d.base !== null) {
-                    items.push({ displayName: model.baseLabel, value: formatter(d.base) });
+                    items.push({ displayName: baseLabel, value: formatter(d.base) });
                 }
                 if (d.delta !== null) {
-                    items.push({ displayName: `\u0394${baseKind}`, value: formatSigned(formatter, d.delta) });
+                    items.push({ displayName: `\u0394${baseLabel}`, value: formatSigned(formatter, d.delta) });
                 }
                 if (d.deltaPct !== null) {
-                    items.push({ displayName: `\u0394${baseKind}%`, value: formatSignedPercent(d.deltaPct) });
+                    items.push({ displayName: `\u0394${baseLabel}%`, value: formatSignedPercent(d.deltaPct) });
                 }
 
                 return items.concat(d.tooltipExtra);

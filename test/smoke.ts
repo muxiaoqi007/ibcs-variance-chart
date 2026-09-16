@@ -12,7 +12,10 @@ import {
     duplicateLabelDataView,
     manyRowsDataView,
     topNDataView,
+    segmentedDataView,
+    withSegmentFetch,
     withMode,
+    withScenarioLabels,
     withTotals,
     withHighlights,
     makeVisual,
@@ -23,6 +26,7 @@ import { installGlobals } from "./harness";
 installGlobals();
 import { parseDataView, resolveBaseScenario } from "../src/dataModel";
 import { detectScenario } from "../src/ibcs";
+import { reviewRegressions } from "./review-regressions";
 
 let failures = 0;
 function check(name: string, cond: boolean, detail?: string): void {
@@ -86,6 +90,19 @@ check("ΔPY header present", html.includes("ΔPY"));
 check("labels present", (html.match(/<text/g) ?? []).length >= 5, `texts=${(html.match(/<text/g) ?? []).length}`);
 check("variance tooltip includes category name", html.includes("Category:"));
 
+console.log("=== configurable scenario labels ===");
+const customLabels = { acLabel: "Actual custom", pyLabel: "Prior custom", plLabel: "Plan custom", fcLabel: "Forecast custom" };
+html = runUpdate(makeVisual(host), withScenarioLabels(measureModeDataView() as Record<string, unknown>, customLabels));
+check("variance header uses custom actual label", html.includes("Actual custom"));
+check("variance headers use custom base label", html.includes("\u0394Prior custom"));
+check("variance tooltip uses custom scenario labels", html.includes("Prior custom:") && html.includes("Actual custom:"));
+html = runUpdate(makeVisual(host), withMode(withScenarioLabels(measureModeDataView() as Record<string, unknown>, customLabels), "table"));
+check("table headers use custom scenario labels", html.includes(">Prior custom<") && html.includes(">Actual custom<"));
+html = runUpdate(makeVisual(host), withMode(withScenarioLabels(timeSeriesDataView() as Record<string, unknown>, customLabels), "timeseries"));
+check("time-series legend uses custom scenario labels", html.includes("Prior custom") && html.includes("Actual custom"));
+html = runUpdate(makeVisual(host), withMode(withScenarioLabels(measureModeDataView() as Record<string, unknown>, customLabels), "waterfall"));
+check("waterfall endpoints use custom scenario labels", html.includes("Prior custom") && html.includes("Actual custom"));
+
 console.log("=== formatting model and runtime recovery ===");
 const formattingVisual = makeVisual(newHost()) as {
     update: (options: unknown) => void;
@@ -98,6 +115,16 @@ const formattingVisual = makeVisual(newHost()) as {
 const formattingModel = formattingVisual.getFormattingModel();
 check("custom formatting cards are registered", (formattingModel.cards?.length ?? 0) === 8);
 check("notation formatting card is registered", formattingModel.cards?.some((card) => card.uid === "notation-card") === true);
+const paneData = measureModeDataView() as Record<string, unknown>;
+(paneData.metadata as Record<string, unknown>).objects = { variance: { colorMode: "neutral" }, topN: { mode: "off" } };
+runUpdate(formattingVisual, paneData);
+let paneJson = JSON.stringify(formattingVisual.getFormattingModel().cards?.map((card) => card.groups));
+check("neutral mode hides semantic color controls", !paneJson.includes('"propertyName":"positiveColor"') && !paneJson.includes('"propertyName":"goodDirection"'));
+check("disabled Top N hides ranking controls", !paneJson.includes('"propertyName":"rankBy"'));
+(paneData.metadata as Record<string, unknown>).objects = { variance: { colorMode: "semantic" }, topN: { mode: "items" } };
+runUpdate(formattingVisual, paneData);
+paneJson = JSON.stringify(formattingVisual.getFormattingModel().cards?.map((card) => card.groups));
+check("reenabling settings restores relevant controls", paneJson.includes('"propertyName":"positiveColor"') && paneJson.includes('"propertyName":"rankBy"'));
 const originalPopulate = formattingVisual.formattingSettingsService.populateFormattingSettingsModel;
 formattingVisual.formattingSettingsService.populateFormattingSettingsModel = () => {
     throw "stale formatting metadata";
@@ -118,7 +145,7 @@ Object.defineProperty(errorHost, "colorPalette", {
     }
 });
 html = runUpdate(makeVisual(errorHost), measureModeDataView());
-check("non-Error host failures render a visible diagnostic", html.includes("Render error") && html.includes("simulated host failure"));
+check("non-Error host failures render a visible diagnostic", html.includes("Visual_RenderError") && html.includes("simulated host failure"));
 
 console.log("=== sort: persisted sortSettings (ac asc) ===");
 const dvSorted = measureModeDataView() as Record<string, unknown>;
@@ -216,7 +243,7 @@ check("item Top N keeps requested items plus Others", (html.match(/ibcs-row/g) ?
 check("item Top N includes Others", html.includes("Visual_Others"));
 check("item Top N excludes lower ranked labels", !html.includes("Gamma") && !html.includes("Delta"));
 const othersHit = (w.document as Document).querySelector("g.ibcs-row:last-of-type rect.ibcs-hit") as SVGRectElement;
-check("Others tooltip aggregates hidden tooltip measures", othersHit?.getAttribute("aria-label")?.includes("Orders: 3") === true);
+check("Others tooltip omits measures without host-evaluated aggregate", othersHit?.getAttribute("aria-label")?.includes("Orders:") === false);
 othersHit.dispatchEvent(new (w.MouseEvent as typeof MouseEvent)("click", { bubbles: true }));
 check("clicking Others selects all aggregated identities", Array.isArray(topNHost.__selectedTargets[0]) && (topNHost.__selectedTargets[0] as unknown[]).length === 2);
 
@@ -234,6 +261,27 @@ html = runUpdate(makeVisual(host), topNDataView("percentage", 80));
 check("percentage Top N reaches cumulative threshold", html.includes("Alpha") && html.includes("Beta") && !html.includes("Gamma"));
 html = runUpdate(makeVisual(host), withMode(topNDataView("items", 2) as Record<string, unknown>, "waterfall"));
 check("Top N applies to waterfall", html.includes("Visual_Others") && !html.includes("Gamma"));
+
+console.log("=== segmented data fetch (data reduction window) ===");
+{
+    const segHost = newHost() as Record<string, unknown> & { fetchMoreData?: unknown };
+    const { first, full } = segmentedDataView(12, 5);
+    const segVisual = makeVisual(segHost);
+    const fetchSpy = withSegmentFetch(segHost);
+    html = runUpdate(segVisual, first, 900, 1400);
+    check("segmented dataView requests the aggregated remainder", fetchSpy.requests[0] === true);
+    html = runUpdate(segVisual, full, 900, 1400);
+    check("aggregated segment shows every category", html.includes("Item 12"), `has Item 12=${html.includes("Item 12")}`);
+    check(
+        "aggregated segment ranks on full data",
+        (() => {
+            const labels = Array.from((w.document as Document).querySelectorAll<SVGGElement>("g.ibcs-row"))
+                .map((g) => g.getAttribute("data-label"));
+
+            return labels[0] === "Item 1" && labels.length === 12;
+        })()
+    );
+}
 
 console.log("=== multiple comparisons ===");
 html = runUpdate(makeVisual(host), multiComparisonDataView("variance"), 900, 660);
@@ -376,7 +424,8 @@ const normalBarWidths = Array.from((w.document as Document).querySelectorAll<SVG
 check("disabled mode uses the true scale again", normalBarWidths.length === 4 && normalBarWidths[1] < normalBarWidths[0] / 2, normalBarWidths.join(","));
 console.log("=== render: waterfall mode (base PY) ===");
 const waterfallHost = newHost() as { __selectedTargets: unknown[] };
-html = runUpdate(makeVisual(waterfallHost), withMode(measureModeDataView() as Record<string, unknown>, "waterfall"));
+const waterfallVisual = makeVisual(waterfallHost);
+html = runUpdate(waterfallVisual, withMode(measureModeDataView() as Record<string, unknown>, "waterfall"));
 check("waterfall columns", (html.match(/<rect/g) ?? []).length >= 7, `rects=${(html.match(/<rect/g) ?? []).length}`);
 const waterfallHits = Array.from((w.document as Document).querySelectorAll<SVGRectElement>(".ibcs-wf-hit"));
 check("every waterfall column has an interaction target", waterfallHits.length === 7, `hits=${waterfallHits.length}`);
@@ -387,6 +436,8 @@ check(
 check("waterfall tooltip includes category name", html.includes("Category: 麻醉重症"));
 waterfallHits[2]?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
 check("clicking an expanded waterfall target selects its category", waterfallHost.__selectedTargets.length === 1);
+runUpdate(waterfallVisual, withMode(measureModeDataView() as Record<string, unknown>, "waterfall"), 480, 240);
+check("waterfall preserves interaction nodes across resize", (w.document as Document).querySelectorAll(".ibcs-wf-hit")[2] === waterfallHits[2]);
 const negativeWaterfall = measureModeDataView() as { categorical: { values: Array<Record<string, unknown>> } };
 negativeWaterfall.categorical.values.forEach((column) => {
     if ((column.source as { roles?: Record<string, boolean> }).roles?.ac || (column.source as { roles?: Record<string, boolean> }).roles?.py) {
@@ -408,5 +459,6 @@ console.log("=== landing page (no data) ===");
 html = runUpdate(makeVisual(host), null);
 check("landing text", html.includes("Visual_LandingTitle") || html.includes("IBCS"), `len=${html.length}`);
 
+reviewRegressions(check);
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);
