@@ -551,7 +551,17 @@ export class Visual implements IVisual {
         const model: VarianceModel = {
             baseKind,
             baseLabel,
-            rows: parsed.rows.map((r) => {
+            // A category can still exist in the parsed model when another
+            // scenario has a value (for example PL), while both measures
+            // used by this variance panel (AC and PY) are blank. Such a row
+            // has no geometry or variance to show and should not consume a
+            // row slot in the composite chart.
+            rows: parsed.rows.filter((r) => {
+                const ac = r.values.AC ?? null;
+                const base = baseKind ? r.values[baseKind] ?? null : null;
+
+                return ac !== null || base !== null;
+            }).map((r) => {
                 const ac = r.values.AC ?? null;
                 const base = baseKind ? r.values[baseKind] ?? null : null;
                 const delta = ac !== null && base !== null ? ac - base : null;

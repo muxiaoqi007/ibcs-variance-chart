@@ -175,7 +175,8 @@ const unknownScenarioView: Record<string, unknown> = {
     }
 };
 html = runUpdate(makeVisual(host), unknownScenarioView);
-check("UNKNOWN scenario values are not silently ranked as AC", html.includes("First") && !html.includes("Second"));
+check("UNKNOWN scenario values are not silently ranked as AC",
+    !html.includes("First") && !html.includes("Second") && !html.includes("ibcs-ac-bar"));
 
 console.log("=== parse: duplicate labels preserve distinct identities ===");
 const parsedDuplicates = parseDataView(duplicateLabelDataView(), host);

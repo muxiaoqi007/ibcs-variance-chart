@@ -30,6 +30,8 @@ export function reviewRegressions(check: (name: string, condition: boolean) => v
     check("missing AC has no phantom bar", widths[3] === 0);
     const zeroX = Number(svg.querySelector(".ibcs-axis-ac")?.getAttribute("x1"));
     check("negative AC bars end at the zero axis", Math.abs(Number(bars[0].getAttribute("x")) + widths[0] - zeroX) < 0.001);
+    svg = render(data([100, null], [80, null], [null, 50]), "variance");
+    check("variance drops rows blank for AC and selected base", Array.from(svg.querySelectorAll(".ibcs-row")).length === 1);
     svg = render(duplicateLabelDataView(), "timeseries");
     const xs = Array.from(svg.querySelectorAll(".ibcs-series-AC rect")).map(n => n.getAttribute("x"));
     check("duplicate time-series labels occupy distinct slots", xs.length === 2 && xs[0] !== xs[1]);
