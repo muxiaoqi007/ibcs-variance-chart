@@ -333,26 +333,12 @@ shrunkDv.categorical.values.forEach((col) => {
 runUpdate(reuseVisual, shrunkDv);
 check("shrunk data removes stale rows", (w.document as Document).querySelectorAll("g.ibcs-row").length === 2);
 
-console.log("=== render: vertical variance mode ===");
-html = runUpdate(makeVisual(host), withMode(measureModeDataView() as Record<string, unknown>, "vertical"));
-check("vertical AC columns rendered", (html.match(/ibcs-vac-bar/g) ?? []).length === 5);
-check("vertical base outlines rendered", (html.match(/ibcs-vbase-bar/g) ?? []).length === 5);
-check("vertical delta bars rendered", (html.match(/ibcs-vdelta-bar/g) ?? []).length === 5);
-check("vertical ΔPY header present", html.includes("ΔPY"));
-check("vertical pct lollipops rendered", (html.match(/ibcs-vpct-dot/g) ?? []).length === 5);
-check("vertical category labels rendered", html.includes("麻醉重症"));
-const verticalHit = (w.document as Document).querySelector("g.ibcs-vcol rect.ibcs-hit");
-check("vertical columns expose interaction targets", verticalHit?.getAttribute("tabindex") === "0");
-check("vertical tooltip includes category name", verticalHit?.getAttribute("aria-label")?.includes("Category:") === true);
-const verticalHost = newHost() as { __selectedTargets: unknown[] };
-html = runUpdate(makeVisual(verticalHost), withMode(measureModeDataView() as Record<string, unknown>, "vertical"));
-(w.document as Document).querySelector("g.ibcs-vcol rect.ibcs-hit")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
-check("clicking a vertical column selects its category", verticalHost.__selectedTargets.length === 1);
-html = runUpdate(makeVisual(host), withMode(measureModeDataView() as Record<string, unknown>, "vertical"), 200, 240);
-check("narrow vertical chart drops the percent panel", !html.includes(">ΔPY%<") && html.includes(">ΔPY<"));
-html = runUpdate(makeVisual(host), withMode(manyRowsDataView() as Record<string, unknown>, "vertical"), 900, 420);
-check("vertical overflow note appears", html.includes("ibcs-overflow-note") && (html.match(/ibcs-vcol/g) ?? []).length < 40);
-
+console.log("=== chart type picker and screenshot-friendly layout ===");
+html = runUpdate(makeVisual(host), measureModeDataView());
+check("chart picker is collapsed by default", html.includes("ibcs-chart-type-trigger") && !html.includes("ibcs-chart-type-option"));
+check("chart picker leaves plot height unchanged", html.includes('height="420"'));
+(w.document as Document).querySelector(".ibcs-chart-type-trigger")?.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+check("chart picker opens on demand", (w.document as Document).querySelectorAll(".ibcs-chart-type-option").length === 4);
 console.log("=== totals row ===");
 html = runUpdate(makeVisual(host), withTotals(measureModeDataView() as Record<string, unknown>, "table"));
 check("table totals row rendered", html.includes("ibcs-ttotal") && html.includes("Visual_Total"));

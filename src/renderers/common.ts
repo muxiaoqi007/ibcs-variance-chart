@@ -7,7 +7,7 @@ import { NotationColors, ScenarioKind } from "../ibcs";
 import { VisualFormattingSettingsModel } from "../settings";
 import { Formatter } from "../helpers";
 
-export type ChartMode = "variance" | "vertical" | "timeseries" | "waterfall" | "table";
+export type ChartMode = "variance" | "timeseries" | "waterfall" | "table";
 
 export interface RenderContext {
     svg: d3.Selection<SVGSVGElement, unknown, null, undefined>;

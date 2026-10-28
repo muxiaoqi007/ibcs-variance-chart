@@ -23,7 +23,6 @@ import { parseDataView, ParseOutput, resolveBaseScenario } from "./dataModel";
 import { createFormatter, Formatter, isNumeric } from "./helpers";
 import { RenderContext, ChartMode, TooltipItem, clamp, scenarioLabel } from "./renderers/common";
 import { renderVarianceChart, VarianceModel } from "./renderers/varianceChart";
-import { renderVerticalVarianceChart } from "./renderers/verticalChart";
 import { renderTimeSeries, TimeSeriesModel } from "./renderers/timeSeries";
 import { renderWaterfall, WaterfallModel, WaterfallColumn } from "./renderers/waterfall";
 import { renderTable, TableModel } from "./renderers/table";
@@ -42,6 +41,8 @@ export class Visual implements IVisual {
 
     private root: d3.Selection<HTMLDivElement, unknown, null, undefined>;
     private svg: d3.Selection<SVGSVGElement, unknown, null, undefined>;
+    private chartTypePicker: d3.Selection<HTMLDivElement, unknown, null, undefined>;
+    private chartTypeMenuOpen = false;
     /** Animate geometry changes on data updates (never on resize). */
     private animate = false;
 
@@ -63,6 +64,7 @@ export class Visual implements IVisual {
         this.allowInteractions = this.host.hostCapabilities?.allowInteractions ?? true;
 
         this.root = d3.select(options.element as HTMLDivElement).classed("ibcsCharts", true);
+        this.chartTypePicker = this.root.append("div").attr("class", "ibcs-chart-type-picker");
         this.svg = this.root.append("svg");
 
         this.svg.on("click", () => {
@@ -219,7 +221,12 @@ export class Visual implements IVisual {
 
     private renderParsed(parsed: ParseOutput, width: number, height: number): void {
         const settings = this.formattingModel;
-        const mode = (settings.chart.mode.value as ChartMode) || "variance";
+        const configuredMode = String(settings.chart.mode.value ?? "variance");
+        const mode = (configuredMode === "vertical" ? "variance" : configuredMode) as ChartMode;
+        if (configuredMode === "vertical") {
+            settings.chart.mode.value = "variance";
+        }
+        const chartHeight = height;
         const baseKind = resolveBaseScenario(String(settings.scenarios.baseScenario.value), parsed.present);
         const comparisonKinds = String(settings.scenarios.comparisonMode.value ?? "single") === "all"
             ? (["PY", "PL", "FC"] as ScenarioKind[]).filter((kind) => parsed.present.includes(kind))
@@ -234,7 +241,7 @@ export class Visual implements IVisual {
         }
         this.svg
             .attr("width", width)
-            .attr("height", height)
+            .attr("height", chartHeight)
             .attr("role", "img")
             .attr("aria-label", this.localizationManager.getDisplayName("Visual_AriaDescription"));
         this.svg
@@ -243,9 +250,14 @@ export class Visual implements IVisual {
 
         const hasRows = parsed.rows.length > 0 || (parsed.timeRows?.length ?? 0) > 0;
         if (!hasRows) {
+            this.chartTypePicker.style("display", "none");
+            this.chartTypePicker.selectAll("button").remove();
+            this.svg.attr("height", height);
             this.renderNoRows(width, height);
             return;
         }
+
+        this.renderChartTypePicker(mode);
 
         const colors = this.resolveColors();
         this.svg.style("--ibcs-text", colors.text)
@@ -266,7 +278,7 @@ export class Visual implements IVisual {
         notice.style("position", "absolute").style("bottom", "0").style("left", "4px")
             .style("right", "4px").style("max-height", "34px").style("overflow", "auto")
             .style("background", this.host.colorPalette.isHighContrast ? this.host.colorPalette.background.value : "white");
-        const chartHeight = Math.max(0, height - (notices.length ? 38 : 0));
+        const contentHeight = Math.max(0, chartHeight - (notices.length ? 38 : 0));
 
         const topNRows = mode === "timeseries"
             ? parsed.rows
@@ -317,7 +329,7 @@ export class Visual implements IVisual {
         const ctx: RenderContext = {
             svg: this.svg,
             width,
-            height: chartHeight,
+            height: contentHeight,
             host: this.host,
             settings,
             colors,
@@ -345,9 +357,6 @@ export class Visual implements IVisual {
             case "timeseries":
                 this.renderTimeSeriesMode(ctx, parsed, baseKind, baseLabel, buildTooltipExtra);
                 break;
-            case "vertical":
-                this.renderVarianceMode(ctx, rowsParsed, baseKind, baseLabel, buildTooltipExtra, true);
-                break;
             case "waterfall":
                 this.renderWaterfallMode(ctx, rowsParsed, baseKind, baseLabel, buildTooltipExtra);
                 break;
@@ -359,6 +368,55 @@ export class Visual implements IVisual {
                 this.renderVarianceMode(ctx, rowsParsed, baseKind, baseLabel, buildTooltipExtra);
                 break;
         }
+    }
+
+    private renderChartTypePicker(mode: ChartMode): void {
+        const options: Array<{ mode: ChartMode; key: string }> = [
+            { mode: "variance", key: "Visual_Enum_Variance" },
+            { mode: "timeseries", key: "Visual_Enum_TimeSeries" },
+            { mode: "waterfall", key: "Visual_Enum_Waterfall" },
+            { mode: "table", key: "Visual_Enum_Table" }
+        ];
+        this.chartTypePicker
+            .style("display", "flex")
+            .attr("role", "toolbar")
+            .classed("is-open", this.chartTypeMenuOpen)
+            .attr("aria-label", this.localizationManager.getDisplayName("Visual_Slice_Mode"));
+        this.chartTypePicker.selectAll("button.ibcs-chart-type-trigger")
+            .data([mode])
+            .join("button")
+            .attr("type", "button")
+            .attr("class", "ibcs-chart-type-trigger")
+            .attr("aria-haspopup", "menu")
+            .attr("aria-expanded", this.chartTypeMenuOpen ? "true" : "false")
+            .text((activeMode) => `${this.localizationManager.getDisplayName(options.find((option) => option.mode === activeMode)?.key ?? "Visual_Enum_Variance")} ▾`)
+            .on("click", () => {
+                this.chartTypeMenuOpen = !this.chartTypeMenuOpen;
+                this.redraw();
+            });
+        const menu = this.chartTypePicker.selectAll<HTMLDivElement, ChartMode>("div.ibcs-chart-type-menu")
+            .data(this.chartTypeMenuOpen ? [mode] : [])
+            .join("div")
+            .attr("class", "ibcs-chart-type-menu")
+            .attr("role", "menu");
+        menu.selectAll<HTMLButtonElement, typeof options[number]>("button.ibcs-chart-type-option")
+            .data(this.chartTypeMenuOpen ? options : [], (option) => option.mode)
+            .join("button")
+            .attr("type", "button")
+            .attr("role", "menuitemradio")
+            .attr("aria-checked", (option) => option.mode === mode ? "true" : "false")
+            .attr("class", (option) => `ibcs-chart-type-option${option.mode === mode ? " is-active" : ""}`)
+            .text((option) => this.localizationManager.getDisplayName(option.key))
+            .on("click", (_event, option) => {
+                this.chartTypeMenuOpen = false;
+                if (option.mode !== String(this.formattingModel.chart.mode.value)) {
+                    this.formattingModel.chart.mode.value = option.mode;
+                    this.host.persistProperties({
+                        merge: [{ objectName: "chart", selector: null, properties: { mode: option.mode } }]
+                    });
+                }
+                this.redraw();
+            });
     }
 
     private sortRows(
@@ -530,8 +588,8 @@ export class Visual implements IVisual {
             const panelParsed: ParseOutput = { ...parsed, rows };
             const baseLabel = scenarioLabel(panelCtx, baseKind);
 
-            if (mode === "variance" || mode === "vertical") {
-                this.renderVarianceMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra, mode === "vertical");
+            if (mode === "variance") {
+                this.renderVarianceMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra);
             } else if (mode === "table") {
                 this.renderTableMode(panelCtx, panelParsed, baseKind, baseLabel, buildTooltipExtra);
             } else {
@@ -545,8 +603,7 @@ export class Visual implements IVisual {
         parsed: ParseOutput,
         baseKind: ScenarioKind | null,
         baseLabel: string,
-        buildTooltipExtra: (raw: Array<number | null>) => TooltipItem[],
-        vertical = false
+        buildTooltipExtra: (raw: Array<number | null>) => TooltipItem[]
     ): void {
         const model: VarianceModel = {
             baseKind,
@@ -581,11 +638,7 @@ export class Visual implements IVisual {
                 };
             })
         };
-        if (vertical) {
-            renderVerticalVarianceChart(ctx, model);
-        } else {
-            renderVarianceChart(ctx, model);
-        }
+        renderVarianceChart(ctx, model);
     }
 
     private renderTimeSeriesMode(

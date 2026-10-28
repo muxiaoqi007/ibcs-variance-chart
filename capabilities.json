@@ -185,11 +185,6 @@
                 "displayNameKey": "Visual_Enum_Variance"
               },
               {
-                "value": "vertical",
-                "displayName": "Variance composite (vertical)",
-                "displayNameKey": "Visual_Enum_Vertical"
-              },
-              {
                 "value": "timeseries",
                 "displayName": "Time series",
                 "displayNameKey": "Visual_Enum_TimeSeries"

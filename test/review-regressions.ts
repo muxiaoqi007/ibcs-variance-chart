@@ -41,6 +41,13 @@ export function reviewRegressions(check: (name: string, condition: boolean) => v
     check("unused Value cannot override dedicated format", parsed?.valueFormat === "#,0" && parsed.mixedInput);
     svg = render(mixed, "variance");
     check("mixed bindings show actionable notice", document.querySelector(".ibcs-input-notice")?.textContent?.includes("Visual_MixedInput") === true);
+    const modeHost = makeHost() as any;
+    let persistedMode: string | undefined;
+    modeHost.persistProperties = (changes: any) => { persistedMode = changes.merge?.[0]?.properties?.mode; };
+    runUpdate(makeVisual(modeHost), mixed);
+    (document.querySelector(".ibcs-chart-type-trigger") as HTMLButtonElement)?.click();
+    (document.querySelectorAll(".ibcs-chart-type-option")[3] as HTMLButtonElement)?.click();
+    check("chart type toolbar switches and persists mode", svgMode() === "table" && persistedMode === "table");
     render(data([100], [80]), "variance");
     check("binding notice clears after correction", !document.querySelector(".ibcs-input-notice"));
     const panels = data([100, 100], [0, 90], [99, 0]);
@@ -68,4 +75,8 @@ export function reviewRegressions(check: (name: string, condition: boolean) => v
     check("dense value labels are thinned", labels.length > 0 && labels.length < 36);
     check("source names are available in time-series legend", svg.textContent?.includes("Last week") === true);
     check("time-series tooltip includes calculated variance", svg.querySelector(".ibcs-series-AC rect")?.getAttribute("aria-label")?.includes("ΔLast week") === true);
+}
+
+function svgMode(): string | null {
+    return document.querySelector("svg")?.getAttribute("data-mode") ?? null;
 }
